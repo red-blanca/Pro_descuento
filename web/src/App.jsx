@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Calculator, Clock3, FileSpreadsheet, Globe, Hash, Search, Settings2, SlidersHorizontal } from 'lucide-react'
 import './App.css'
 
 function App() {
   const [form, setForm] = useState({
-    query: 'notebook rtx',
+    query: '',
     country: 'cl',
-    all_results: true,
+    all_results: false,
     max_pages: 0,
     min_price: 0,
     max_price: 0,
@@ -19,6 +19,8 @@ function App() {
     include_international: false,
     cookie_file: '',
     search_url: '',
+    category_url: '',
+    scan_scope: 'fast',
     preview_limit: 200,
   })
   const [exactCount, setExactCount] = useState(null)
@@ -36,6 +38,7 @@ function App() {
   const [previewRows, setPreviewRows] = useState([])
   const [previewColumns, setPreviewColumns] = useState([])
   const [previewElapsed, setPreviewElapsed] = useState(null)
+  const [countMeta, setCountMeta] = useState(null)
   const [view, setView] = useState('main')
   const [columnFilters, setColumnFilters] = useState({
     Posicion: '',
@@ -47,8 +50,8 @@ function App() {
   })
 
   const canSubmit = useMemo(
-    () => Boolean(form.query.trim() || form.search_url.trim()),
-    [form.query, form.search_url],
+    () => Boolean(form.query.trim() || form.search_url.trim() || form.category_url.trim()),
+    [form.query, form.search_url, form.category_url],
   )
   const resolvedColumns = previewColumns.length
     ? previewColumns
@@ -68,6 +71,34 @@ function App() {
 
   const onChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const PREDEFINED_CATEGORIES = [
+    { id: 'computacion', name: 'Computación' },
+    { id: 'celulares-telefonia', name: 'Celulares y Telefonía' },
+    { id: 'electronica', name: 'Electrónica, Audio y Video' },
+    { id: 'hogar-muebles', name: 'Hogar y Muebles' },
+    { id: 'consolas-videojuegos', name: 'Consolas y Videojuegos' },
+    { id: 'deportes-fitness', name: 'Deportes y Fitness' },
+    { id: 'herramientas', name: 'Herramientas' },
+    { id: 'construccion', name: 'Construcción' },
+    { id: 'belleza-cuidado-personal', name: 'Belleza y Cuidado Personal' },
+    { id: 'accesorios-para-vehiculos', name: 'Accesorios para Vehículos' },
+    { id: 'vestuario-y-calzado', name: 'Vestuario y Calzado' },
+    { id: 'juegos-juguetes', name: 'Juegos y Juguetes' },
+    { id: 'salud-equipamiento-medico', name: 'Salud y Equipamiento Médico' },
+    { id: 'bebes', name: 'Bebés' },
+    { id: 'electrodomesticos', name: 'Electrodomésticos' },
+  ]
+
+  const updateScanScope = (value) => {
+    setForm((prev) => ({
+      ...prev,
+      scan_scope: value,
+      all_results: value === 'complete',
+      preview_limit: value === 'complete' && Number(prev.preview_limit) <= 200 ? 1000 : prev.preview_limit,
+      max_pages: value === 'complete' && Number(prev.max_pages) === 0 ? 100 : prev.max_pages,
+    }))
   }
 
   const runWithLiveTimer = async (setterLoading, setterRunMs, task) => {
@@ -164,6 +195,7 @@ function App() {
         if (!res.ok) throw new Error(data.detail || 'Error en conteo exacto')
         setExactCount(data.count)
         setExactElapsed(data.elapsed_seconds)
+        setCountMeta(data)
         setApplied(data.applied_filters || null)
       } catch (err) {
         setStatus(err.message)
@@ -186,6 +218,7 @@ function App() {
         setPreviewColumns(data.columns || [])
         setPreviewRows(data.rows || [])
         setPreviewElapsed(data.elapsed_seconds ?? null)
+        setCountMeta(data)
         setView('preview')
       } catch (err) {
         setStatus(err.message)
@@ -196,18 +229,18 @@ function App() {
   if (view === 'preview') {
     return (
       <main className="page">
-        <section className="panel preview-page">
-          <div className="hero">
+        <section className="panel preview-page fade-in-section">
+          <div className="hero section-reveal fade-1">
             <h1>Previsualizacion de Excel</h1>
             <button className="btn ghost" type="button" onClick={() => setView('main')}>
               <span className="btn-content"><ArrowLeft size={16} />Volver</span>
             </button>
           </div>
-          <div className="preview-meta">
+          <div className="preview-meta section-reveal fade-2">
             <span>Filas: {filteredPreviewRows.length} / {previewRows.length}</span>
             <span>Tiempo: {previewElapsed != null ? `${previewElapsed}s` : '-'}</span>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap section-reveal fade-3">
             <table className="preview-table">
               <thead>
                 <tr>
@@ -232,7 +265,7 @@ function App() {
               </thead>
               <tbody>
                 {filteredPreviewRows.map((row, idx) => (
-                  <tr key={`${row.Link}-${idx}`}>
+                  <tr className="preview-row" key={`${row.Link}-${idx}`} style={{ animationDelay: `${idx * 20}ms` }}>
                     <td>{row.Posicion}</td>
                     <td>{row.Titulo}</td>
                     <td>{row.Precio}</td>
@@ -264,16 +297,16 @@ function App() {
 
   return (
     <main className="page">
-      <section className="panel">
-        <div className="hero">
+      <section className="panel visual-panel fade-in-section">
+        <div className="hero section-reveal fade-1">
           <h1>MercadoLibre Export UI</h1>
           <span className="badge">Diseno integrado</span>
         </div>
-        <p className="hint">
+        <p className="hint section-reveal fade-2">
           Configura filtros, calcula cantidad de resultados y exporta Excel sin listar productos.
         </p>
 
-        <div className="section">
+        <div className="section section-reveal fade-3">
           <div className="section-title">
             <Search size={14} /> Busqueda principal
           </div>
@@ -325,6 +358,27 @@ function App() {
               <option value="new">Nuevo</option>
               <option value="used">Usado</option>
               <option value="reconditioned">Reacondicionado</option>
+            </select>
+          </label>
+          <label>
+            Categoria
+            <select
+              value={form.category_url}
+              onChange={(e) => onChange('category_url', e.target.value)}
+            >
+              <option value="">Todas las categorias</option>
+              {PREDEFINED_CATEGORIES.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Cobertura
+            <select value={form.scan_scope} onChange={(e) => updateScanScope(e.target.value)}>
+              <option value="fast">Muestra rapida</option>
+              <option value="complete">Completa hasta el tope</option>
             </select>
           </label>
           <label className="full">
@@ -392,7 +446,7 @@ function App() {
             </div>
           </label>
           <label>
-            Max paginas (0 = sin limite)
+            Tope paginas (0 = sin limite)
             <input
               type="number"
               value={form.max_pages}
@@ -400,11 +454,11 @@ function App() {
             />
           </label>
           <label>
-            Limite preview
+            Tope preview/export
             <input
               type="number"
               min="1"
-              max="2000"
+              max="10000"
               value={form.preview_limit}
               onChange={(e) => onChange('preview_limit', Number(e.target.value || 1))}
             />
@@ -424,7 +478,7 @@ function App() {
         </div>
         </div>
 
-        <div className="section">
+        <div className="section section-reveal fade-4">
           <div className="section-title">
             <Settings2 size={14} /> Configuracion de ejecucion
           </div>
@@ -465,7 +519,7 @@ function App() {
         </div>
         </div>
 
-        <div className="actions">
+        <div className="actions section-reveal fade-5">
           <button className="btn warn" disabled={!canSubmit || loadingExactCount} onClick={runExactCount}>
             {loadingExactCount ? (
               <span className="btn-content">
@@ -498,7 +552,7 @@ function App() {
           </button>
         </div>
 
-        <div className="results">
+        <div className="results section-reveal fade-6">
           <div className="section-title">
             <SlidersHorizontal size={14} /> Resumen
           </div>
@@ -517,6 +571,15 @@ function App() {
                 <div className="kpi-value">{exactElapsed != null ? `${exactElapsed}s` : '-'}</div>
               </div>
             </div>
+            <div className="kpi-card">
+              <div className="kpi-icon"><SlidersHorizontal size={14} /></div>
+              <div>
+                <div className="kpi-label">Paginas / items</div>
+                <div className="kpi-value">
+                  {countMeta ? `${countMeta.pages_fetched || 0} / ${countMeta.fetched_raw || 0}` : '-'}
+                </div>
+              </div>
+            </div>
           </div>
           {applied && (
             <div className="applied-filters">
@@ -524,14 +587,14 @@ function App() {
               {(applied.exclude_words || []).join(', ')}] country={applied.country}
             </div>
           )}
-          {status && <div className="status">{status}</div>}
+          {status && <div className="status status-pulse">{status}</div>}
           {(loadingExactCount || loadingExport || loadingPreview) && (
             <div className="running-hint">
               Proceso activo: {loadingExactCount ? 'calculo exacto' : loadingPreview ? 'previsualizacion' : 'exportacion de Excel'}
             </div>
           )}
         </div>
-        <footer className="foot">MercadoLibre Export Tool v2.0 - Los datos extraidos son para uso personal.</footer>
+        <footer className="foot">MercadoLibre Export Tool v2.0 - Datos para uso personal.</footer>
       </section>
     </main>
   )

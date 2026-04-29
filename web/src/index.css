@@ -8,4 +8,8 @@ body {
   color: #d8e8f5;
   min-width: 320px;
   background: #08131f;
+  min-height: 100vh;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }

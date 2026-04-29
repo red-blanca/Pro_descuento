@@ -1,14 +1,17 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import concurrent.futures
 import hashlib
+import http.client
 import json
 import os
 import re
+import socket
 import sys
 import time
 import unicodedata
+import math
 from datetime import datetime
 from html import unescape
 from io import BytesIO
@@ -16,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, quote_plus, unquote, urljoin
 from urllib.request import HTTPCookieProcessor, Request, build_opener
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from zipfile import ZIP_DEFLATED, ZipFile
 import http.cookiejar
 
@@ -42,8 +45,12 @@ CONDITION_TOKEN_BY_FILTER = {
 }
 DEFAULT_PAGE_SIZE = 48
 MAX_EMPTY_PAGES = 5
+REQUEST_RETRIES = 4
 REQUEST_COOKIE_HEADER: str | None = None
 ROOT = Path(__file__).resolve().parent
+PAGE_CACHE_TTL_SECONDS = 300
+PAGE_CACHE: dict[str, tuple[float, str]] = {}
+MAX_WORKERS = 5
 
 
 def _progress(prefix: str, current: int, total: int | None = None) -> None:
@@ -156,12 +163,49 @@ def _build_opener() -> tuple[Any, http.cookiejar.CookieJar]:
 
 
 def _read_html(opener: Any, url: str, timeout: int) -> str:
-    headers = {"User-Agent": USER_AGENT}
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": "https://www.google.com/",
+        "Upgrade-Insecure-Requests": "1",
+    }
     if REQUEST_COOKIE_HEADER:
         headers["Cookie"] = REQUEST_COOKIE_HEADER
     req = Request(url, headers=headers)
     with opener.open(req, timeout=timeout) as response:
         return response.read().decode("utf-8", errors="ignore")
+
+
+def _cache_get_html(url: str) -> str | None:
+    entry = PAGE_CACHE.get(url)
+    if not entry:
+        return None
+    expires_at, html = entry
+    if expires_at < time.time():
+        PAGE_CACHE.pop(url, None)
+        return None
+    return html
+
+
+def _cache_set_html(url: str, html: str) -> None:
+    PAGE_CACHE[url] = (time.time() + PAGE_CACHE_TTL_SECONDS, html)
+
+
+def _is_transient_network_error(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError, http.client.RemoteDisconnected)):
+        return True
+    if isinstance(exc, HTTPError):
+        return exc.code in {408, 429, 500, 502, 503, 504}
+    if isinstance(exc, URLError):
+        return True
+    return False
+
+
+def _sleep_before_retry(attempt: int) -> None:
+    time.sleep(min(0.8 * (2 ** attempt), 6.0))
 
 
 def _parse_cookie_pairs(raw: str) -> str:
@@ -200,8 +244,24 @@ def configure_cookie_header(cookie_inline: str | None, cookie_file: str | None) 
 
 
 def fetch_url_html(url: str, timeout: int = 20) -> str:
-    opener, _ = _build_opener()
-    return _read_html(opener, url, timeout)
+    cached = _cache_get_html(url)
+    if cached is not None:
+        return cached
+    last_exc: BaseException | None = None
+    for attempt in range(REQUEST_RETRIES):
+        opener, _ = _build_opener()
+        try:
+            html = _read_html(opener, url, timeout)
+            _cache_set_html(url, html)
+            return html
+        except BaseException as exc:
+            last_exc = exc
+            if not _is_transient_network_error(exc) or attempt >= REQUEST_RETRIES - 1:
+                raise
+            _sleep_before_retry(attempt)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("No se pudo leer MercadoLibre.")
 
 
 def _solve_bm_challenge(cookie_jar: http.cookiejar.CookieJar, domain: str) -> bool:
@@ -298,6 +358,40 @@ def append_filter_tokens(base_url: str, tokens: list[str]) -> str:
     return f"{base_url}_{'_'.join(tokens)}"
 
 
+def insert_start_in_url(url: str, start: int) -> str:
+    if start <= 1 or f"_Desde_{start}" in url:
+        return url
+    url = re.sub(r"_Desde_\d+", "", url)
+    marker_positions = [
+        pos for marker in ("_OrderId_", "_PriceRange_", "_Discount_", "_ITEM*", "_NoIndex_", "_SHIPPING*")
+        if (pos := url.find(marker)) >= 0
+    ]
+    if marker_positions:
+        pos = min(marker_positions)
+        return f"{url[:pos]}_Desde_{start}{url[pos:]}"
+    hash_pos = url.find("#")
+    if hash_pos >= 0:
+        return f"{url[:hash_pos]}_Desde_{start}{url[hash_pos:]}"
+    return f"{url}_Desde_{start}"
+
+
+def set_price_range_in_url(url: str, min_price: int, max_price: int) -> str:
+    main, sep, fragment = url.partition("#")
+    main = re.sub(r"_Desde_\d+", "", main)
+    main = re.sub(r"_PriceRange_\d+-\d+", "", main)
+    token = f"_PriceRange_{max(0, min_price)}-{max(0, max_price)}"
+    marker_positions = [
+        pos for marker in ("_NoIndex_", "_SHIPPING*", "_Discount_", "_ITEM*")
+        if (pos := main.find(marker)) >= 0
+    ]
+    if marker_positions:
+        pos = min(marker_positions)
+        main = f"{main[:pos]}{token}{main[pos:]}"
+    else:
+        main = f"{main}{token}"
+    return f"{main}{sep}{fragment}" if sep else main
+
+
 def build_search_url_with_start(
     query: str,
     country: str,
@@ -308,10 +402,21 @@ def build_search_url_with_start(
     min_discount: int = 0,
     sort_price: bool = False,
     condition_filter: str = "any",
+    category_alias: str | None = None,
 ) -> str:
     domain = DOMAIN_BY_COUNTRY[country]
     slug = quote_plus(query.strip()).replace("+", "-")
-    base = f"https://listado.{domain}/{slug}"
+    if category_alias and category_alias.strip():
+        cat = category_alias.strip()
+        if slug:
+            base = f"https://listado.{domain}/{cat}/{slug}"
+        else:
+            base = f"https://listado.{domain}/{cat}"
+    else:
+        if slug:
+            base = f"https://listado.{domain}/{slug}"
+        else:
+            base = f"https://listado.{domain}/ofertas"
     if start > 1:
         base = f"{base}_Desde_{start}"
     return append_filter_tokens(
@@ -354,6 +459,25 @@ def looks_like_results_page(html: str) -> bool:
     )
 
 
+def looks_like_traffic_block(html: str) -> bool:
+    text = html.lower()
+    return (
+        "suspicious-traffic-frontend" in text
+        or "account-verification" in text
+        or "tráfico sospechoso" in text
+        or "trafico sospechoso" in text
+        or "verifica que eres" in text
+    )
+
+
+def _raise_traffic_block() -> None:
+    raise RuntimeError(
+        "Mercado Libre está mostrando una verificación de tráfico sospechoso para esta sesión/IP. "
+        "Abre Mercado Libre en tu navegador, resuelve la verificación si aparece y exporta cookies "
+        "actualizadas a cookies.txt, o reintenta más tarde desde otra red."
+    )
+
+
 def fetch_search_page_html(
     query: str, country: str, timeout: int = 20, exclude_international: bool = True
 ) -> str:
@@ -362,6 +486,8 @@ def fetch_search_page_html(
 
     opener, jar = _build_opener()
     html = _read_html(opener, url, timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
 
     if "This page requires JavaScript to work" not in html:
         return html
@@ -370,16 +496,793 @@ def fetch_search_page_html(
         raise RuntimeError("Bloqueado por anti-bot y no se pudo resolver el desafío.")
 
     html = _read_html(opener, url, timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
     if "This page requires JavaScript to work" in html:
         raise RuntimeError("Bloqueado por anti-bot después de reintentar.")
 
     return html
 
 
+def extract_nordic_context(html: str) -> dict[str, Any]:
+    marker = "_n.ctx.r="
+    pos = html.find(marker)
+    if pos < 0:
+        return {}
+    decoder = json.JSONDecoder()
+    try:
+        obj, _ = decoder.raw_decode(html[pos + len(marker):])
+        return obj if isinstance(obj, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def extract_search_api_from_html(html: str) -> dict[str, Any]:
+    ctx = extract_nordic_context(html)
+    paths = [
+        ("appProps", "pageProps", "initialState", "pagination", "search_api"),
+        ("appProps", "sharedState", "search", "pagination", "search_api"),
+        ("appProps", "sharedState", "locationSearch", "initialState", "pagination", "search_api"),
+    ]
+    for path in paths:
+        node: Any = ctx
+        for key in path:
+            if not isinstance(node, dict):
+                node = None
+                break
+            node = node.get(key)
+        if isinstance(node, dict):
+            return node
+    return {}
+
+
+def search_metadata_from_url(url: str, country: str, timeout: int = 20) -> dict[str, Any]:
+    html = fetch_url_html(url, timeout=timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
+    search_api = extract_search_api_from_html(html)
+    if not search_api:
+        opener, jar = _build_opener()
+        html = fetch_page_with_challenge(opener, jar, url, country, timeout=timeout)
+        search_api = extract_search_api_from_html(html)
+    return search_api
+
+
+def _attribute_value(result: dict[str, Any], attr_id: str) -> str:
+    for attr in result.get("attributes") or []:
+        if str(attr.get("id") or "") == attr_id:
+            return str(attr.get("value_name") or attr.get("value_id") or "")
+    return ""
+
+
+def _condition_from_result(result: dict[str, Any]) -> str | None:
+    raw = " ".join([
+        _attribute_value(result, "ITEM_CONDITION"),
+        str(result.get("condition") or ""),
+    ]).lower()
+    if "reacondicion" in raw or "refurbished" in raw:
+        return "reconditioned"
+    if "usado" in raw or "used" in raw:
+        return "used"
+    if "nuevo" in raw or "new" in raw:
+        return "new"
+    return None
+
+
+def _format_price_from_result(result: dict[str, Any]) -> str:
+    price = result.get("price") or result.get("current_price")
+    if isinstance(price, dict):
+        price = (
+            price.get("amount")
+            or price.get("value")
+            or price.get("fraction")
+            or price.get("cents")
+        )
+    if price is None:
+        return ""
+    try:
+        amount = int(float(price))
+        return f"$ {amount:,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return str(price)
+
+
+def normalize_result_from_search_api(result: dict[str, Any]) -> dict[str, Any]:
+    winner = result.get("buy_box_winner") if isinstance(result.get("buy_box_winner"), dict) else {}
+    offer = {**result, **winner}
+    link = str(offer.get("permalink") or offer.get("url") or offer.get("link") or "")
+    image = str(offer.get("thumbnail") or offer.get("image") or "")
+    pictures = offer.get("pictures") or result.get("pictures") or []
+    if not image and pictures and isinstance(pictures[0], dict):
+        image = str(pictures[0].get("url") or "")
+    images = result.get("images") or []
+    if not image and images and isinstance(images[0], dict):
+        image = str(images[0].get("url") or images[0].get("secure_url") or "")
+    discount = offer.get("discount_percent") or offer.get("discount_rate")
+    if discount is None:
+        price = offer.get("price")
+        original = offer.get("original_price")
+        if isinstance(price, dict):
+            price = price.get("amount") or price.get("value")
+        if isinstance(original, dict):
+            original = original.get("amount") or original.get("value")
+        try:
+            if original and price and float(original) > float(price):
+                discount = round(((float(original) - float(price)) / float(original)) * 100)
+        except (TypeError, ValueError):
+            discount = None
+    return {
+        "position": 0,
+        "title": str(offer.get("title") or offer.get("name") or result.get("title") or result.get("name") or ""),
+        "price": _format_price_from_result(offer),
+        "link": link,
+        "image": image,
+        "discount_percent": int(discount) if isinstance(discount, (int, float)) else None,
+        "condition": _condition_from_result(offer) or _condition_from_result(result),
+    }
+
+
+def _paging_int(search_api: dict[str, Any], key: str) -> int:
+    try:
+        return int((search_api.get("paging") or {}).get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _collect_results_from_listing_url(
+    first_url: str,
+    country: str,
+    limit: int,
+    fetch_all: bool,
+    max_pages: int,
+    timeout: int,
+    first_api: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    first_api = first_api or search_metadata_from_url(first_url, country, timeout=timeout)
+    paging = first_api.get("paging") or {}
+    page_limit = int(paging.get("limit") or DEFAULT_PAGE_SIZE)
+    total = int(paging.get("total") or 0)
+    primary_results = int(paging.get("primary_results") or total or 0)
+    accessible_total = min(total, primary_results) if primary_results > 0 and total > 0 else (primary_results or total)
+    if not fetch_all:
+        target_items = max(1, limit)
+    else:
+        target_items = accessible_total or limit
+    target_pages = max(1, math.ceil(target_items / max(1, page_limit)))
+    if max_pages > 0:
+        target_pages = min(target_pages, max_pages)
+
+    starts = [1 + (page_limit * idx) for idx in range(target_pages)]
+    urls = [first_url] + [insert_start_in_url(first_url, start) for start in starts[1:]]
+    pages: dict[int, dict[str, Any]] = {0: first_api}
+
+    def fetch_idx(idx_url: tuple[int, str]) -> tuple[int, dict[str, Any]]:
+        idx, url = idx_url
+        return idx, search_metadata_from_url(url, country, timeout=timeout)
+
+    if len(urls) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(urls) - 1)) as executor:
+            futures = [executor.submit(fetch_idx, item) for item in enumerate(urls[1:], start=1)]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    idx, api = future.result()
+                except HTTPError as exc:
+                    if exc.code == 404:
+                        continue
+                    raise
+                pages[idx] = api
+
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    fetched_raw = 0
+    for idx in sorted(pages):
+        results = pages[idx].get("results") or []
+        fetched_raw += len(results)
+        for raw in results:
+            item = normalize_result_from_search_api(raw)
+            link_key = item.get("link") or item.get("title")
+            if not link_key or link_key in seen:
+                continue
+            seen.add(str(link_key))
+            item["position"] = len(items) + 1
+            items.append(item)
+            if len(items) >= limit:
+                break
+        if len(items) >= limit:
+            break
+
+    meta = {
+        "total": total,
+        "primary_results": primary_results,
+        "accessible_total": accessible_total,
+        "page_limit": page_limit,
+        "pages_fetched": len(pages),
+        "fetched_raw": fetched_raw,
+        "search_url": first_url,
+        "available_filters": first_api.get("available_filters") or [],
+        "filters": first_api.get("filters") or [],
+    }
+    return items, meta
+
+
+def _collect_results_split_by_price(
+    first_url: str,
+    country: str,
+    limit: int,
+    max_pages: int,
+    min_price: int,
+    max_price: int,
+    timeout: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    lower = max(0, min_price)
+    upper = max_price if max_price > 0 else 999_999_999
+    seed_ranges: list[tuple[int, int]] = []
+    for start in range(0, 100_000, 10_000):
+        seed_ranges.append((start, start + 9_999))
+    seed_ranges.extend([
+        (100_000, 149_999),
+        (150_000, 199_999),
+        (200_000, 249_999),
+        (250_000, 299_999),
+        (300_000, 399_999),
+        (400_000, 599_999),
+        (600_000, 999_999),
+        (1_000_000, 1_999_999),
+        (2_000_000, 999_999_999),
+    ])
+
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    pages_fetched = 0
+    fetched_raw = 0
+    split_ranges: list[dict[str, int]] = []
+    total_reported = 0
+    page_budget = max_pages if max_pages > 0 else 0
+
+    for seed_low, seed_high in seed_ranges:
+        low = max(lower, seed_low)
+        high = min(upper, seed_high)
+        if low > high:
+            continue
+        if len(items) >= limit or (page_budget and page_budget <= 0):
+            break
+        remaining = limit - len(items)
+        bucket_pages = page_budget if page_budget else 0
+        try:
+            bucket_items, bucket_meta = _collect_results_from_listing_url(
+                set_price_range_in_url(first_url, low, high), country, remaining, True, bucket_pages, timeout
+            )
+        except HTTPError as exc:
+            if exc.code == 404:
+                continue
+            raise
+        range_total = int(bucket_meta.get("total") or 0)
+        if range_total <= 0 and not bucket_items:
+            continue
+        total_reported += range_total
+        pages_fetched += int(bucket_meta.get("pages_fetched") or 0)
+        fetched_raw += int(bucket_meta.get("fetched_raw") or 0)
+        if page_budget:
+            page_budget -= int(bucket_meta.get("pages_fetched") or 0)
+        split_ranges.append({"min": low, "max": high, "total": range_total})
+        for item in bucket_items:
+            link_key = str(item.get("link") or item.get("title") or "")
+            if not link_key or link_key in seen:
+                continue
+            seen.add(link_key)
+            item["position"] = len(items) + 1
+            items.append(item)
+            if len(items) >= limit:
+                break
+
+    return items, {
+        "total": total_reported,
+        "primary_results": 0,
+        "accessible_total": total_reported,
+        "page_limit": DEFAULT_PAGE_SIZE,
+        "pages_fetched": pages_fetched,
+        "fetched_raw": fetched_raw,
+        "search_url": first_url,
+        "available_filters": [],
+        "filters": [],
+        "split_by_price": True,
+        "split_ranges": split_ranges,
+    }
+
+
+def collect_results_from_search_api(
+    query: str,
+    country: str,
+    limit: int,
+    fetch_all: bool,
+    max_pages: int,
+    exclude_international: bool,
+    min_price: int,
+    max_price: int,
+    min_discount: int,
+    sort_price: bool,
+    condition_filter: str,
+    search_url: str | None = None,
+    category_url: str | None = None,
+    timeout: int = 20,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    first_url = build_initial_listing_url(
+        query, country, exclude_international, min_price, max_price, min_discount,
+        sort_price, condition_filter, search_url=search_url, category_url=category_url,
+    )
+    first_api = search_metadata_from_url(first_url, country, timeout=timeout)
+    total = _paging_int(first_api, "total")
+    primary_results = _paging_int(first_api, "primary_results") or total
+    accessible_total = min(total, primary_results) if primary_results > 0 and total > 0 else (primary_results or total)
+    if fetch_all and total > accessible_total and limit > accessible_total:
+        items, meta = _collect_results_split_by_price(
+            first_url, country, limit, max_pages, min_price, max_price, timeout
+        )
+        meta["split_covered_total"] = meta.get("total", 0)
+        meta["total"] = total
+        meta["primary_results"] = primary_results
+        return items, meta
+    return _collect_results_from_listing_url(
+        first_url, country, limit, fetch_all, max_pages, timeout, first_api=first_api
+    )
+
+
+def build_initial_listing_url(
+    query: str,
+    country: str,
+    exclude_international: bool,
+    min_price: int,
+    max_price: int,
+    min_discount: int,
+    sort_price: bool,
+    condition_filter: str,
+    search_url: str | None = None,
+    category_url: str | None = None,
+) -> str:
+    if search_url and search_url.strip():
+        return search_url.strip()
+    if category_url and category_url.strip() and category_url.strip().startswith("http"):
+        return category_url.strip()
+        
+    cat_alias = category_url.strip() if category_url and category_url.strip() else None
+
+    return build_search_url_with_start(
+        query,
+        country,
+        1,
+        exclude_international=exclude_international,
+        min_price=min_price,
+        max_price=max_price,
+        min_discount=min_discount,
+        sort_price=sort_price,
+        condition_filter=condition_filter,
+        category_alias=cat_alias,
+    )
+
+
+def build_search_url_with_category(
+    query: str,
+    country: str,
+    start: int,
+    exclude_international: bool = True,
+    min_price: int = 0,
+    max_price: int = 0,
+    min_discount: int = 0,
+    sort_price: bool = False,
+    condition_filter: str = "any",
+) -> str:
+    domain = DOMAIN_BY_COUNTRY[country]
+    slug = quote_plus(query.strip()).replace("+", "-")
+    base = f"https://listado.{domain}/_CustId_0_{slug}"
+    if start > 1:
+        base = f"{base}_Desde_{start}"
+    return append_filter_tokens(
+        base,
+        build_filter_tokens(
+            min_price, max_price, min_discount, sort_price, exclude_international, condition_filter
+        ),
+    )
+
+
+def looks_like_results_page(html: str) -> bool:
+    return (
+        "poly-component__title" in html
+        or "ui-search-layout" in html
+        or "poly-card__content" in html
+    )
+
+
+def looks_like_traffic_block(html: str) -> bool:
+    text = html.lower()
+    return (
+        "suspicious-traffic-frontend" in text
+        or "account-verification" in text
+        or "tráfico sospechoso" in text
+        or "trafico sospechoso" in text
+        or "verifica que eres" in text
+    )
+
+
+def _raise_traffic_block() -> None:
+    raise RuntimeError(
+        "Mercado Libre está mostrando una verificación de tráfico sospechoso para esta sesión/IP. "
+        "Abre Mercado Libre en tu navegador, resuelve la verificación si aparece y exporta cookies "
+        "actualizadas a cookies.txt, o reintenta más tarde desde otra red."
+    )
+
+
+def fetch_search_page_html(
+    query: str, country: str, timeout: int = 20, exclude_international: bool = True
+) -> str:
+    url = build_search_url(query, country, exclude_international=exclude_international)
+    domain = DOMAIN_BY_COUNTRY[country]
+
+    opener, jar = _build_opener()
+    html = _read_html(opener, url, timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
+
+    if "This page requires JavaScript to work" not in html:
+        return html
+
+    if not _solve_bm_challenge(jar, domain):
+        raise RuntimeError("Bloqueado por anti-bot y no se pudo resolver el desafío.")
+
+    html = _read_html(opener, url, timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
+    if "This page requires JavaScript to work" in html:
+        raise RuntimeError("Bloqueado por anti-bot después de reintentar.")
+
+    return html
+
+
+def extract_nordic_context(html: str) -> dict[str, Any]:
+    marker = "_n.ctx.r="
+    pos = html.find(marker)
+    if pos < 0:
+        return {}
+    decoder = json.JSONDecoder()
+    try:
+        obj, _ = decoder.raw_decode(html[pos + len(marker):])
+        return obj if isinstance(obj, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def extract_search_api_from_html(html: str) -> dict[str, Any]:
+    ctx = extract_nordic_context(html)
+    paths = [
+        ("appProps", "pageProps", "initialState", "pagination", "search_api"),
+        ("appProps", "sharedState", "search", "pagination", "search_api"),
+        ("appProps", "sharedState", "locationSearch", "initialState", "pagination", "search_api"),
+    ]
+    for path in paths:
+        node: Any = ctx
+        for key in path:
+            if not isinstance(node, dict):
+                node = None
+                break
+            node = node.get(key)
+        if isinstance(node, dict):
+            return node
+    return {}
+
+
+def search_metadata_from_url(url: str, country: str, timeout: int = 20) -> dict[str, Any]:
+    html = fetch_url_html(url, timeout=timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
+    search_api = extract_search_api_from_html(html)
+    if not search_api:
+        opener, jar = _build_opener()
+        html = fetch_page_with_challenge(opener, jar, url, country, timeout=timeout)
+        search_api = extract_search_api_from_html(html)
+    return search_api
+
+
+def _attribute_value(result: dict[str, Any], attr_id: str) -> str:
+    for attr in result.get("attributes") or []:
+        if str(attr.get("id") or "") == attr_id:
+            return str(attr.get("value_name") or attr.get("value_id") or "")
+    return ""
+
+
+def _condition_from_result(result: dict[str, Any]) -> str | None:
+    raw = " ".join([
+        _attribute_value(result, "ITEM_CONDITION"),
+        str(result.get("condition") or ""),
+    ]).lower()
+    if "reacondicion" in raw or "refurbished" in raw:
+        return "reconditioned"
+    if "usado" in raw or "used" in raw:
+        return "used"
+    if "nuevo" in raw or "new" in raw:
+        return "new"
+    return None
+
+
+def _format_price_from_result(result: dict[str, Any]) -> str:
+    price = result.get("price") or result.get("current_price")
+    if isinstance(price, dict):
+        price = (
+            price.get("amount")
+            or price.get("value")
+            or price.get("fraction")
+            or price.get("cents")
+        )
+    if price is None:
+        return ""
+    try:
+        amount = int(float(price))
+        return f"$ {amount:,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return str(price)
+
+
+def normalize_result_from_search_api(result: dict[str, Any]) -> dict[str, Any]:
+    winner = result.get("buy_box_winner") if isinstance(result.get("buy_box_winner"), dict) else {}
+    offer = {**result, **winner}
+    link = str(offer.get("permalink") or offer.get("url") or offer.get("link") or "")
+    image = str(offer.get("thumbnail") or offer.get("image") or "")
+    pictures = offer.get("pictures") or result.get("pictures") or []
+    if not image and pictures and isinstance(pictures[0], dict):
+        image = str(pictures[0].get("url") or "")
+    images = result.get("images") or []
+    if not image and images and isinstance(images[0], dict):
+        image = str(images[0].get("url") or images[0].get("secure_url") or "")
+    discount = offer.get("discount_percent") or offer.get("discount_rate")
+    if discount is None:
+        price = offer.get("price")
+        original = offer.get("original_price")
+        if isinstance(price, dict):
+            price = price.get("amount") or price.get("value")
+        if isinstance(original, dict):
+            original = original.get("amount") or original.get("value")
+        try:
+            if original and price and float(original) > float(price):
+                discount = round(((float(original) - float(price)) / float(original)) * 100)
+        except (TypeError, ValueError):
+            discount = None
+    return {
+        "position": 0,
+        "title": str(offer.get("title") or offer.get("name") or result.get("title") or result.get("name") or ""),
+        "price": _format_price_from_result(offer),
+        "link": link,
+        "image": image,
+        "discount_percent": int(discount) if isinstance(discount, (int, float)) else None,
+        "condition": _condition_from_result(offer) or _condition_from_result(result),
+    }
+
+
+def _paging_int(search_api: dict[str, Any], key: str) -> int:
+    try:
+        return int((search_api.get("paging") or {}).get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _collect_results_from_listing_url(
+    first_url: str,
+    country: str,
+    limit: int,
+    fetch_all: bool,
+    max_pages: int,
+    timeout: int,
+    first_api: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    first_api = first_api or search_metadata_from_url(first_url, country, timeout=timeout)
+    paging = first_api.get("paging") or {}
+    page_limit = int(paging.get("limit") or DEFAULT_PAGE_SIZE)
+    total = int(paging.get("total") or 0)
+    primary_results = int(paging.get("primary_results") or total or 0)
+    accessible_total = min(total, primary_results) if primary_results > 0 and total > 0 else (primary_results or total)
+    if not fetch_all:
+        target_items = max(1, limit)
+    else:
+        target_items = accessible_total or limit
+    target_pages = max(1, math.ceil(target_items / max(1, page_limit)))
+    if max_pages > 0:
+        target_pages = min(target_pages, max_pages)
+
+    starts = [1 + (page_limit * idx) for idx in range(target_pages)]
+    urls = [first_url] + [insert_start_in_url(first_url, start) for start in starts[1:]]
+    pages: dict[int, dict[str, Any]] = {0: first_api}
+
+    def fetch_idx(idx_url: tuple[int, str]) -> tuple[int, dict[str, Any]]:
+        idx, url = idx_url
+        return idx, search_metadata_from_url(url, country, timeout=timeout)
+
+    if len(urls) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(urls) - 1)) as executor:
+            futures = [executor.submit(fetch_idx, item) for item in enumerate(urls[1:], start=1)]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    idx, api = future.result()
+                except HTTPError as exc:
+                    if exc.code == 404:
+                        continue
+                    raise
+                pages[idx] = api
+
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    fetched_raw = 0
+    for idx in sorted(pages):
+        results = pages[idx].get("results") or []
+        fetched_raw += len(results)
+        for raw in results:
+            item = normalize_result_from_search_api(raw)
+            link_key = item.get("link") or item.get("title")
+            if not link_key or link_key in seen:
+                continue
+            seen.add(str(link_key))
+            item["position"] = len(items) + 1
+            items.append(item)
+            if len(items) >= limit:
+                break
+        if len(items) >= limit:
+            break
+
+    meta = {
+        "total": total,
+        "primary_results": primary_results,
+        "accessible_total": accessible_total,
+        "page_limit": page_limit,
+        "pages_fetched": len(pages),
+        "fetched_raw": fetched_raw,
+        "search_url": first_url,
+        "available_filters": first_api.get("available_filters") or [],
+        "filters": first_api.get("filters") or [],
+    }
+    return items, meta
+
+
+def _collect_results_split_by_price(
+    first_url: str,
+    country: str,
+    limit: int,
+    max_pages: int,
+    min_price: int,
+    max_price: int,
+    timeout: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    lower = max(0, min_price)
+    upper = max_price if max_price > 0 else 999_999_999
+    seed_ranges: list[tuple[int, int]] = []
+    for start in range(0, 100_000, 10_000):
+        seed_ranges.append((start, start + 9_999))
+    seed_ranges.extend([
+        (100_000, 149_999),
+        (150_000, 199_999),
+        (200_000, 249_999),
+        (250_000, 299_999),
+        (300_000, 399_999),
+        (400_000, 599_999),
+        (600_000, 999_999),
+        (1_000_000, 1_999_999),
+        (2_000_000, 999_999_999),
+    ])
+
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    pages_fetched = 0
+    fetched_raw = 0
+    split_ranges: list[dict[str, int]] = []
+    total_reported = 0
+    page_budget = max_pages if max_pages > 0 else 0
+
+    for seed_low, seed_high in seed_ranges:
+        low = max(lower, seed_low)
+        high = min(upper, seed_high)
+        if low > high:
+            continue
+        if len(items) >= limit or (page_budget and page_budget <= 0):
+            break
+        remaining = limit - len(items)
+        bucket_pages = page_budget if page_budget else 0
+        try:
+            bucket_items, bucket_meta = _collect_results_from_listing_url(
+                set_price_range_in_url(first_url, low, high), country, remaining, True, bucket_pages, timeout
+            )
+        except HTTPError as exc:
+            if exc.code == 404:
+                continue
+            raise
+        range_total = int(bucket_meta.get("total") or 0)
+        if range_total <= 0 and not bucket_items:
+            continue
+        total_reported += range_total
+        pages_fetched += int(bucket_meta.get("pages_fetched") or 0)
+        fetched_raw += int(bucket_meta.get("fetched_raw") or 0)
+        if page_budget:
+            page_budget -= int(bucket_meta.get("pages_fetched") or 0)
+        split_ranges.append({"min": low, "max": high, "total": range_total})
+        for item in bucket_items:
+            link_key = str(item.get("link") or item.get("title") or "")
+            if not link_key or link_key in seen:
+                continue
+            seen.add(link_key)
+            item["position"] = len(items) + 1
+            items.append(item)
+            if len(items) >= limit:
+                break
+
+    return items, {
+        "total": total_reported,
+        "primary_results": 0,
+        "accessible_total": total_reported,
+        "page_limit": DEFAULT_PAGE_SIZE,
+        "pages_fetched": pages_fetched,
+        "fetched_raw": fetched_raw,
+        "search_url": first_url,
+        "available_filters": [],
+        "filters": [],
+        "split_by_price": True,
+        "split_ranges": split_ranges,
+    }
+
+
+def collect_results_from_search_api(
+    query: str,
+    country: str,
+    limit: int,
+    fetch_all: bool,
+    max_pages: int,
+    exclude_international: bool,
+    min_price: int,
+    max_price: int,
+    min_discount: int,
+    sort_price: bool,
+    condition_filter: str,
+    search_url: str | None = None,
+    category_url: str | None = None,
+    timeout: int = 20,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    first_url = build_initial_listing_url(
+        query, country, exclude_international, min_price, max_price, min_discount,
+        sort_price, condition_filter, search_url=search_url, category_url=category_url,
+    )
+    first_api = search_metadata_from_url(first_url, country, timeout=timeout)
+    total = _paging_int(first_api, "total")
+    primary_results = _paging_int(first_api, "primary_results") or total
+    accessible_total = min(total, primary_results) if primary_results > 0 and total > 0 else (primary_results or total)
+    if fetch_all and total > accessible_total and limit > accessible_total:
+        items, meta = _collect_results_split_by_price(
+            first_url, country, limit, max_pages, min_price, max_price, timeout
+        )
+        meta["split_covered_total"] = meta.get("total", 0)
+        meta["total"] = total
+        meta["primary_results"] = primary_results
+        return items, meta
+    return _collect_results_from_listing_url(
+        first_url, country, limit, fetch_all, max_pages, timeout, first_api=first_api
+    )
+
+
+def categories_from_search_api(search_api: dict[str, Any]) -> list[dict[str, Any]]:
+    for filter_item in search_api.get("available_filters") or []:
+        if filter_item.get("id") != "category":
+            continue
+        out = []
+        for value in filter_item.get("values") or []:
+            out.append({
+                "id": str(value.get("id") or ""),
+                "name": str(value.get("name") or ""),
+                "count": int(value.get("results") or 0),
+                "url": unescape(str(value.get("url") or "")),
+            })
+        out.sort(key=lambda item: (-item["count"], item["name"]))
+        return out
+    return []
+
+
 def fetch_page_with_challenge(
     opener: Any, jar: http.cookiejar.CookieJar, url: str, country: str, timeout: int = 20
 ) -> str:
     html = _read_html(opener, url, timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
     if "This page requires JavaScript to work" not in html:
         return html
 
@@ -388,6 +1291,8 @@ def fetch_page_with_challenge(
         raise RuntimeError("Bloqueado por anti-bot y no se pudo resolver el desafío.")
 
     html = _read_html(opener, url, timeout)
+    if looks_like_traffic_block(html):
+        _raise_traffic_block()
     if "This page requires JavaScript to work" in html:
         raise RuntimeError("Bloqueado por anti-bot después de reintentar.")
 
@@ -454,22 +1359,30 @@ def collect_results(
                 condition_filter=condition_filter,
             )
         html = ""
-        last_http_error: HTTPError | None = None
-        for _ in range(3):
+        last_error: BaseException | None = None
+        for attempt in range(REQUEST_RETRIES):
             try:
                 html = fetch_page_with_challenge(opener, jar, current_url, country, timeout=timeout)
-                last_http_error = None
+                last_error = None
                 break
             except HTTPError as exc:
-                last_http_error = exc
+                last_error = exc
                 if exc.code == 404:
                     break
-                time.sleep(0.6)
+                if not _is_transient_network_error(exc) or attempt == REQUEST_RETRIES - 1:
+                    break
+                _sleep_before_retry(attempt)
                 opener, jar = _build_opener()
-        if last_http_error is not None:
-            if last_http_error.code == 404:
+            except (TimeoutError, socket.timeout, ConnectionError, URLError) as exc:
+                last_error = exc
+                if attempt == REQUEST_RETRIES - 1:
+                    break
+                _sleep_before_retry(attempt)
+                opener, jar = _build_opener()
+        if last_error is not None:
+            if isinstance(last_error, HTTPError) and last_error.code == 404:
                 break
-            raise last_http_error
+            raise RuntimeError(f"No se pudo leer Mercado Libre tras {REQUEST_RETRIES} intentos: {last_error}") from last_error
 
         # Some queries return a generic shell page without SSR results.
         # Try an alternate listing URL before giving up on this page.

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Descuentos Rata - Listado de Ofertas</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #f59e0b;
+            --primary-hover: #d97706;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #10b981;
+            --glass: rgba(30, 41, 59, 0.7);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(to right, var(--primary), #fbbf24);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .search-box {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0.8rem 1.2rem;
+            border-radius: 0.75rem;
+            color: white;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: var(--bg);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-export {
+            background: var(--accent);
+            color: var(--bg);
+        }
+
+        .btn-export:hover {
+            background: #059669;
+        }
+
+        .table-container {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            color: var(--primary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.95rem;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .price {
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .discount {
+            color: #ef4444;
+            font-weight: 700;
+        }
+
+        .link-icon {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .loader {
+            display: none;
+            text-align: center;
+            padding: 5rem;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--card-bg);
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Descuentos Rata</h1>
+            <button class="btn btn-export" onclick="exportToExcel()">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                Exportar a Excel
+            </button>
+        </header>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Filtrar por texto..." onkeypress="if(event.key === 'Enter') search()">
+            <button class="btn btn-primary" onclick="search()">Buscar</button>
+        </div>
+
+        <div id="loader" class="loader">
+            <div class="spinner"></div>
+            <p>Obteniendo listado de ofertas...</p>
+        </div>
+
+        <div class="table-container">
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Tienda</th>
+                        <th>Producto</th>
+                        <th>Precio</th>
+                        <th>Dcto.</th>
+                        <th>Link</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function search() {
+            const query = document.getElementById('searchInput').value;
+            const body = document.getElementById('resultsBody');
+            const loader = document.getElementById('loader');
+
+            body.innerHTML = '';
+            loader.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, limit: 200 })
+                });
+                
+                const data = await response.json();
+                renderTable(data.rows);
+            } catch (error) {
+                console.error('Error:', error);
+                body.innerHTML = '<tr><td colspan="6" style="text-align:center">Error de conexión</td></tr>';
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function renderTable(rows) {
+            const body = document.getElementById('resultsBody');
+            if (!rows || rows.length === 0) {
+                body.innerHTML = '<tr><td colspan="6" style="text-align:center">No hay resultados</td></tr>';
+                return;
+            }
+
+            body.innerHTML = rows.map(row => `
+                <tr>
+                    <td>${row.Posicion}</td>
+                    <td>${row.Tienda}</td>
+                    <td>${row.Titulo}</td>
+                    <td class="price">${row.Precio}</td>
+                    <td class="discount">${row.Descuento}</td>
+                    <td><a href="${row.Link}" target="_blank" class="link-icon">🔗</a></td>
+                </tr>
+            `).join('');
+        }
+
+        async function exportToExcel() {
+            const query = document.getElementById('searchInput').value;
+            try {
+                const response = await fetch('/api/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, limit: 1000 })
+                });
+                
+                if (!response.ok) throw new Error('Error al exportar');
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ofertas_rata_${query || 'todas'}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                alert('Error al exportar: ' + error.message);
+            }
+        }
+
+        window.onload = search;
+    </script>
+</body>
+</html>

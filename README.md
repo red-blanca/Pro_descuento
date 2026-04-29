@@ -39,7 +39,22 @@ Si quieres usar cookies autenticadas en local, puedes:
 ### Un solo comando (backend + frontend)
 
 ```bash
-python run_dev.py
+python3 run_dev.py
+```
+
+Este comando levanta todas las vistas disponibles:
+
+- MercadoLibre: `http://127.0.0.1:5173`
+- Facebook Marketplace: `http://127.0.0.1:5184`
+- Knasta: `http://127.0.0.1:5185`
+- Pulga: `http://127.0.0.1:5186`
+- TuGanga: `http://127.0.0.1:5187`
+- DescuentosRata: `http://127.0.0.1:8040`
+
+Para validar arranque y apagar automáticamente:
+
+```bash
+python3 run_all.py --no-open --check
 ```
 
 ## Despliegue en Render

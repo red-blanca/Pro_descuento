@@ -1,0 +1,20 @@
+{
+  "marketplace_path": "curico",
+  "location_query": "Curico, Maule, Chile",
+  "radius_km": 12,
+  "include_talca": false,
+  "country_code": "CL",
+  "queries": [
+    {
+      "name": "notebooks_gamer",
+      "terms": "notebook gamer",
+      "min_price": 250000,
+      "max_price": 1500000,
+      "include_words": ["rtx"],
+      "exclude_words": ["repuesto", "funda"],
+      "limit": 60,
+      "scroll_limit": 24,
+      "export_xlsx": true
+    }
+  ]
+}

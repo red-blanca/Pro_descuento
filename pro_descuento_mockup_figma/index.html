@@ -1,0 +1,513 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pro Descuento - Dashboard Detallado</title>
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --bg-soft: #121a2a;
+      --panel: #151e31;
+      --panel-soft: #1a2440;
+      --line: #263250;
+      --text: #e8eeff;
+      --muted: #98a2b7;
+      --brand: #7c5cff;
+      --brand-2: #14d2c8;
+      --accent-1: #4dd6ff;
+      --accent-2: #00c2a8;
+      --good: #65fbd6;
+      --warn: #f8cb4e;
+      --bad: #ff7eb6;
+      --danger: #ff6372;
+      --chip: #0d1831;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 85% -10%, #1d2a58 0%, transparent 45%),
+        radial-gradient(900px 420px at -10% 80%, #12263f 0%, transparent 46%),
+        linear-gradient(160deg, var(--bg), #0e1730);
+      min-height: 100vh;
+      padding: 18px;
+    }
+
+    .shell {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 16px;
+      min-height: calc(100vh - 36px);
+    }
+
+    .side {
+      background: color-mix(in srgb, var(--panel) 78%, black);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .brand {
+      padding: 12px;
+      border-radius: 14px;
+      background: linear-gradient(130deg, var(--chip), #1f2c4f);
+      border: 1px solid #30406d;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: linear-gradient(120deg, var(--brand), var(--brand-2));
+      box-shadow: 0 0 16px rgba(124, 92, 255, .8);
+    }
+
+    .menu {
+      display: grid;
+      gap: 8px;
+    }
+    .menu-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid #293456;
+      background: #121a30;
+      color: #d7def8;
+      font-size: 13px;
+    }
+    .menu-item.active {
+      border-color: #3f54a6;
+      color: white;
+      background: linear-gradient(135deg, #2a3a77, #2b5f66);
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 16px;
+    }
+
+    .topbar {
+      border: 1px solid var(--line);
+      background: linear-gradient(120deg, #161f37, var(--panel));
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .crumbs {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #0e1322;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    }
+    .btn.secondary { background: #202947; color: #c7d7ff; border: 1px solid #31406a; }
+
+    .searchbar {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 12px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .searchbar input {
+      width: 100%;
+      border: 1px solid #2a3660;
+      background: #0e1730;
+      color: white;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 13px;
+    }
+    .chip {
+      font-size: 11px;
+      color: #d4dcff;
+      border: 1px solid #32406f;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: var(--chip);
+      white-space: nowrap;
+    }
+
+    .row {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 14px 30px rgba(0,0,0,.25);
+    }
+    .kpis { grid-column: 1 / span 12; display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr); }
+    .kpi {
+      background: linear-gradient(150deg, #1a2543, #151f3d);
+      border: 1px solid #2f3f6f;
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .kpi .small { color: var(--muted); font-size: 11px; }
+    .kpi h2 { margin: 6px 0 0; font-size: 28px; }
+    .kpi .delta { margin-left: 6px; color: var(--good); font-weight: 700; font-size: 11px; }
+
+    .table-wrap {
+      grid-column: 1 / span 8;
+      min-height: 360px;
+    }
+    .side-small {
+      grid-column: 9 / span 4;
+      display: grid;
+      gap: 12px;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+    }
+    .mini {
+      font-size: 11px;
+      color: var(--muted);
+      border: 1px solid #2d3b68;
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead th {
+      color: #c7d1ee;
+      text-align: left;
+      border-bottom: 1px solid #2a3760;
+      padding: 10px 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: #9fb0e8;
+    }
+    tbody td {
+      border-bottom: 1px solid #25315a;
+      padding: 10px 8px;
+      vertical-align: top;
+    }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      color: #d7dff9;
+      background: #1a284b;
+      border: 1px solid #324171;
+    }
+    .pill.good { color: #a8ffc2; background: #0d3a2a; border-color: #205e4d; }
+    .pill.warn { color: #ffd38f; background: #3b2e0e; border-color: #654f14; }
+    .pill.bad { color: #ffc4d2; background: #3b1220; border-color: #7b2a3b; }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .metric {
+      border: 1px solid #2f3f6a;
+      background: #121b35;
+      border-radius: 12px;
+      padding: 10px;
+      font-size: 11px;
+    }
+    .metric h4 { margin: 0 0 6px; font-size: 12px; color: #d8e1ff; }
+    .metric p { margin: 0; color: #a8b3d6; }
+
+    .bar-chart {
+      margin-top: 10px;
+      height: 120px;
+      border-radius: 12px;
+      border: 1px solid #2d3e69;
+      background:
+        linear-gradient(transparent 0 0) 0 0 / 100% 1px no-repeat,
+        #0f1b37;
+      padding: 10px;
+      display: grid;
+      align-items: end;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 8px;
+    }
+    .bar {
+      border-radius: 8px 8px 0 0;
+      background: linear-gradient(180deg, #7c5cff, #00d4c4);
+      min-height: 10px;
+      width: 100%;
+    }
+
+    .timeline {
+      margin-top: 10px;
+      border: 1px dashed #3f4f7d;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 11px;
+      color: #aeb8de;
+    }
+    .timeline-item {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      border-bottom: 1px solid #29365f;
+      padding-bottom: 8px;
+      color: #c6d2f6;
+    }
+    .timeline-item:last-child { border: 0; padding-bottom: 0; margin-bottom: 0; }
+
+    .footer-note {
+      grid-column: 1 / span 12;
+      border: 1px dashed #3a4a75;
+      border-radius: 12px;
+      padding: 10px;
+      color: #98a3c3;
+      font-size: 11px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-right: 6px;
+      display: inline-block;
+    }
+
+    .ok { background: var(--good); }
+    .warn-c { background: var(--warn); }
+    .bad-c { background: var(--bad); }
+
+    @media (max-width: 1200px) {
+      .shell { grid-template-columns: 72px 1fr; }
+      .side .label { display: none; }
+      .kpis { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 900px) {
+      .shell { display: block; }
+      .row { grid-template-columns: 1fr; }
+      .side-small, .table-wrap { grid-column: 1 / -1; }
+      .table-wrap, .meta-grid { overflow-x: auto; }
+      .searchbar { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><span class="dot"></span><strong>Pro Descuento</strong></div>
+      <div class="menu">
+        <div class="menu-item active">📊 Dashboard</div>
+        <div class="menu-item">🔎 Búsquedas</div>
+        <div class="menu-item">📈 Tendencias</div>
+        <div class="menu-item">⚠️ Alertas</div>
+        <div class="menu-item">📤 Exportes</div>
+        <div class="menu-item">⚙️ Configuración</div>
+      </div>
+      <div class="menu-item">API / Integraciones</div>
+      <div class="menu-item">Logs de scraping</div>
+      <div class="menu-item">Historial de cambios</div>
+    </aside>
+
+    <main class="main">
+      <section class="topbar">
+        <div>
+          <div><strong>Panel central de oportunidades</strong></div>
+          <div class="crumbs">Dashboard > Proyectos > Electrónica > Prioridad alta</div>
+        </div>
+        <div class="actions">
+          <button class="btn secondary">Simular job</button>
+          <button class="btn">Exportar xlsx</button>
+        </div>
+      </section>
+
+      <section class="searchbar">
+        <input value="Buscar: smartphone, televisor, notebook, auriculares" />
+        <span class="chip">Rango de precio: $0 - $2.000.000</span>
+        <span class="chip">Región: Santiago centro</span>
+        <span class="chip">Fuentes: ML + FBM</span>
+      </section>
+
+      <section class="row">
+        <section class="panel kpis">
+          <article class="kpi">
+            <span class="small">Total SKU monitoreados</span>
+            <h2>4,812 <span class="delta">+8.2%</span></h2>
+          </article>
+          <article class="kpi">
+            <span class="small">Ofertas nuevas hoy</span>
+            <h2>39 <span class="delta">+12</span></h2>
+          </article>
+          <article class="kpi">
+            <span class="small">Ahorro proyectado</span>
+            <h2>$1.230.400 <span class="delta">+17%</span></h2>
+          </article>
+          <article class="kpi">
+            <span class="small">Health de scraping</span>
+            <h2>98.4% <span class="delta">(sin fallas críticas)</span></h2>
+          </article>
+        </section>
+
+        <section class="panel table-wrap">
+          <div class="title">
+            <span>Últimos hallazgos de precios</span>
+            <div class="toolbar">
+              <span class="mini">Orden: desc</span>
+              <span class="mini">Últ. 24h</span>
+              <span class="mini">Exportados: 12</span>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Plataforma</th>
+                <th>Precio anterior</th>
+                <th>Precio actual</th>
+                <th>Variación</th>
+                <th>Estado</th>
+                <th>Última actualización</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>iPhone 14 Pro Max 256GB</td>
+                <td>Mercado Libre</td>
+                <td>$1.199.000</td>
+                <td><b>$1.039.900</b></td>
+                <td><span class="pill good">-13.3%</span></td>
+                <td><span class="pill good">Validado</span></td>
+                <td>09:12</td>
+              </tr>
+              <tr>
+                <td>Samsung S24 Ultra</td>
+                <td>FB Marketplace</td>
+                <td>$1.250.000</td>
+                <td><b>$1.039.000</b></td>
+                <td><span class="pill warn">-16.9%</span></td>
+                <td><span class="pill warn">Repetido</span></td>
+                <td>08:47</td>
+              </tr>
+              <tr>
+                <td>Audífonos TWS Pro</td>
+                <td>Mercado Libre</td>
+                <td>$95.000</td>
+                <td><b>$72.990</b></td>
+                <td><span class="pill good">-23.2%</span></td>
+                <td><span class="pill good">Nuevo</span></td>
+                <td>08:22</td>
+              </tr>
+              <tr>
+                <td>Monitor 27" 4K</td>
+                <td>Amazon</td>
+                <td>$289.000</td>
+                <td><b>$304.990</b></td>
+                <td><span class="pill bad">+5.5%</span></td>
+                <td><span class="pill bad">Desv. alta</span></td>
+                <td>07:58</td>
+              </tr>
+              <tr>
+                <td>Smart TV 50" HDR</td>
+                <td>Mercado Libre</td>
+                <td>$549.000</td>
+                <td><b>$509.900</b></td>
+                <td><span class="pill warn">-7.1%</span></td>
+                <td><span class="pill warn">Revisión</span></td>
+                <td>07:35</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="side-small">
+          <div class="panel">
+            <div class="title">Estado de pipelines</div>
+            <div class="meta-grid">
+              <div class="metric"><h4><span class="status-dot ok"></span>Scrape diario</h4><p>Ejecutado: 03:00, 09:00</p></div>
+              <div class="metric"><h4><span class="status-dot ok"></span>Tareas en cola</h4><p>3 pendientes · 0 fallidas</p></div>
+              <div class="metric"><h4><span class="status-dot warn-c"></span>Alertas activas</h4><p>14 sin confirmar</p></div>
+              <div class="metric"><h4><span class="status-dot bad-c"></span>Sesiones bloqueadas</h4><p>1 retry automático</p></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Últimos eventos del sistema</div>
+            <div class="timeline">
+              <div class="timeline-item"><span>09:13</span><span>Scrape ML completado 2m</span></div>
+              <div class="timeline-item"><span>09:06</span><span>Nuevo filtro activo: región RM</span></div>
+              <div class="timeline-item"><span>08:58</span><span>Exportación de reportes (xlsx)</span></div>
+              <div class="timeline-item"><span>08:48</span><span>Detección de caída de precio > 20%</span></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Distribución semanal</div>
+            <div class="bar-chart">
+              <div class="bar" style="height: 22%;"></div>
+              <div class="bar" style="height: 34%;"></div>
+              <div class="bar" style="height: 41%;"></div>
+              <div class="bar" style="height: 46%;"></div>
+              <div class="bar" style="height: 61%;"></div>
+              <div class="bar" style="height: 52%;"></div>
+              <div class="bar" style="height: 70%;"></div>
+              <div class="bar" style="height: 84%;"></div>
+              <div class="bar" style="height: 52%;"></div>
+              <div class="bar" style="height: 67%;"></div>
+              <div class="bar" style="height: 76%;"></div>
+              <div class="bar" style="height: 82%;"></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="footer-note">
+          <span>Mockup 100% visual • Datos sintéticos • Sin conexión a backend</span>
+          <span>Tip: para la versión final, agregar tooltips por fila y estado de stock por seller.</span>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

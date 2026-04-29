@@ -1,0 +1,447 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soluciones Digitales en Salud - Presentación</title>
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --ink: #0e1628;
+      --bg: #0a1020;
+      --panel: #13203a;
+      --card: #1a2b4a;
+      --line: #2f456f;
+      --text: #e8f0ff;
+      --muted: #9fb0d3;
+      --good: #22c55e;
+      --accent: #7c5cff;
+      --accent-2: #21d4c0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background: linear-gradient(180deg, #071024 0%, #0d1830 55%, #0a152a 100%);
+      color: var(--text);
+    }
+    .deck {
+      width: 1366px;
+      margin: 24px auto;
+      display: grid;
+      gap: 24px;
+      padding: 18px;
+      background: #091329;
+      border: 1px solid #24365b;
+    }
+    .slide {
+      width: 1366px;
+      min-height: 768px;
+      border-radius: 18px;
+      border: 1px solid #36507a;
+      padding: 42px 52px;
+      background:
+        radial-gradient(900px 300px at 84% 0%, rgba(124,92,255,.22), transparent 45%),
+        linear-gradient(160deg, #14254a, #13203f);
+      box-shadow: 0 20px 45px rgba(0,0,0,.45);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:after {
+      content: "";
+      position: absolute;
+      right: -200px;
+      top: -190px;
+      width: 420px;
+      height: 420px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(33,212,192,.23), rgba(33,212,192,0));
+    }
+    .slide .slide-no {
+      position: absolute;
+      right: 26px;
+      top: 20px;
+      font-size: 13px;
+      color: #afbcdd;
+      letter-spacing: .12em;
+    }
+    .kicker {
+      color: #8ea2d0;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 58px;
+      line-height: 1;
+      color: #f3f7ff;
+    }
+    h2 {
+      margin: 0;
+      font-size: 34px;
+      color: #ecf1ff;
+    }
+    .lead {
+      margin-top: 14px;
+      color: #bec7df;
+      max-width: 900px;
+      font-size: 20px;
+      line-height: 1.45;
+    }
+    .topline {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #b3c0e4;
+      margin: 10px 0 20px;
+    }
+    .badge {
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #e7fff6;
+      background: linear-gradient(135deg, #24d4c0, #7c5cff);
+      border: 1px solid rgba(255,255,255,.24);
+    }
+    .grid {
+      margin-top: 26px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .panel {
+      background: rgba(11, 26, 52, 0.86);
+      border: 1px solid #2f4772;
+      border-radius: 14px;
+      padding: 18px;
+    }
+    .panel h3 { margin: 0 0 10px; font-size: 24px; }
+    .panel ul { margin: 0; padding-left: 19px; color: #d0daf1; line-height: 1.55; }
+    .panel li { margin-bottom: 8px; }
+    .row {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    .metric {
+      border-radius: 12px;
+      border: 1px solid #2c4a81;
+      padding: 12px;
+      background: #111f3d;
+      text-align: center;
+    }
+    .metric .n {
+      color: #9ff1d8;
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+    .metric .t {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #aec1ea;
+    }
+    .section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .card {
+      border-radius: 14px;
+      border: 1px solid #2d4e8a;
+      background: linear-gradient(165deg, #152b53, #13284a);
+      padding: 14px;
+    }
+    .card .title {
+      font-size: 19px;
+      margin: 0 0 10px;
+      color: #f3f6ff;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: #b8ffef;
+      border: 1px solid #3da6a0;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: rgba(53, 255, 224, .14);
+      margin-bottom: 10px;
+    }
+    .small-note {
+      color: #a0accf;
+      font-size: 13px;
+      line-height: 1.45;
+      margin-top: 10px;
+    }
+    .flow {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .step {
+      border-radius: 12px;
+      border: 1px solid #3a5180;
+      background: #132b52;
+      padding: 12px;
+      text-align: center;
+      min-height: 110px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      position: relative;
+    }
+    .step strong {
+      font-size: 16px;
+    }
+    .step span {
+      display: block;
+      margin-top: 6px;
+      color: #bdd2f8;
+      font-size: 12px;
+    }
+    .step:not(:last-child):after {
+      content: "→";
+      position: absolute;
+      right: -11px;
+      color: #6fd5ff;
+      font-size: 28px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    .footer {
+      margin-top: 14px;
+      color: #9aaad0;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px dashed #2f4674;
+      padding-top: 10px;
+    }
+    .solution-grid {
+      margin-top: 20px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, 1fr);
+      margin-bottom: 12px;
+    }
+    .s-card {
+      border: 1px solid #2c456e;
+      border-radius: 14px;
+      padding: 14px;
+      background: linear-gradient(150deg, rgba(33, 60, 107, .32), rgba(12, 27, 54, .8));
+    }
+    .s-card .s-title { margin: 0; font-size: 22px; }
+    .bullet {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      color: #d6def1;
+    }
+    .bullet li {
+      margin: 6px 0;
+      border-left: 3px solid #62f6cf;
+      padding-left: 10px;
+      font-size: 15px;
+    }
+    .split {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 16px;
+    }
+    .right {
+      background: #101f3f;
+      border: 1px solid #2b4265;
+      border-radius: 12px;
+      padding: 14px;
+      color: #dde6ff;
+    }
+    .right h4 { margin-top: 0; }
+    .right ul { margin: 0; color: #c8d5f2; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <section class="deck">
+    <article class="slide" id="s1">
+      <div class="slide-no">1 / 7</div>
+      <div class="kicker">Presentación estratégica</div>
+      <h1>Soluciones Digitales</h1>
+      <h1 style="margin-top:8px;color:#98f6db;">en Salud</h1>
+      <p class="lead">Esta versión mejora el documento original con narrativa ejecutiva, jerarquía visual y lectura rápida para toma de decisiones.</p>
+      <div class="topline"><span class="badge">Ámbito clínico</span><span>•</span><span>Interoperabilidad</span><span>•</span><span>Escalabilidad</span></div>
+      <div class="grid">
+        <div class="panel">
+          <h3>Objetivo</h3>
+          <ul>
+            <li>Comparar plataformas open source enfocadas en telemedicina y registros clínicos.</li>
+            <li>Presentar fortalezas operativas para priorizar adopción.</li>
+            <li>Conectar cada solución con arquitectura FHIR y analítica poblacional.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Qué mejora</h3>
+          <ul>
+            <li>Diagrama de relación funcional por tipo de solución.</li>
+            <li>Indicadores de impacto para decisiones de inversión.</li>
+            <li>Diseño responsive para presentación ejecutiva e impacto visual.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="row">
+        <div class="metric"><div>8+</div><div class="n">soluciones</div><div class="t">analizadas</div></div>
+        <div class="metric"><div>4</div><div class="n">ejes</div><div class="t">funcionales</div></div>
+        <div class="metric"><div>100%</div><div class="n">open source</div><div class="t">orientación</div></div>
+      </div>
+    </article>
+
+    <article class="slide" id="s2">
+      <div class="slide-no">2 / 7</div>
+      <div class="kicker">Marco de evaluación</div>
+      <h2>Criterios para comparar soluciones</h2>
+      <p class="lead">Se agrupan por casos de uso para que la lectura no sea solo técnica, sino estratégica.</p>
+      <div class="section">
+        <div class="card">
+          <span class="tag">Monitoreo remoto</span>
+          <h3 class="title">1) Monitoreo remoto y alertas</h3>
+          <p class="small-note">Prioriza transmisión continua, latencia baja y mecanismos de notificación clínica.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Telemedicina</span>
+          <h3 class="title">2) Servicios clínicos virtuales</h3>
+          <p class="small-note">Evalúa integración con videollamada, agenda y continuidad de atención.</p>
+        </div>
+      </div>
+      <div class="section">
+        <div class="card">
+          <span class="tag">Interoperabilidad</span>
+          <h3 class="title">3) Integración de datos clínicos</h3>
+          <p class="small-note">Compatibilidad con FHIR, APIs y capacidad de interoperar con HIS existentes.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Análisis</span>
+          <h3 class="title">4) Analítica y poblacional</h3>
+          <p class="small-note">Capacidad de exportar datos y construir paneles para seguimiento poblacional.</p>
+        </div>
+      </div>
+      <div class="flow">
+        <div class="step"><strong>Descubrimiento</strong><span>Recolectar requerimientos</span></div>
+        <div class="step"><strong>Evaluación</strong><span>Comparar arquitectura</span></div>
+        <div class="step"><strong>Piloto</strong><span>Validar caso de uso real</span></div>
+        <div class="step"><strong>Escala</strong><span>Integración y operación</span></div>
+      </div>
+      <div class="footer"><span>Resumen visual preparado para comité técnico o gerencial</span><span>Confidencial - versión mejorada</span></div>
+    </article>
+
+    <article class="slide" id="s3">
+      <div class="slide-no">3 / 7</div>
+      <div class="kicker">Monitoreo de diabetes</div>
+      <h2>Open Source Nightscout</h2>
+      <p class="lead">Plataforma en nube para visualización y monitoreo remoto de glucosa en tiempo real, con alertas y acceso compartido.</p>
+      <div class="solution-grid">
+        <div class="s-card">
+          <h3 class="s-title">Problema</h3>
+          <ul class="bullet"><li>Acceso remoto a glucosa para pacientes y cuidadores</li></ul>
+        </div>
+        <div class="s-card">
+          <h3 class="s-title">Arquitectura</h3>
+          <ul class="bullet"><li>Node.js, MongoDB, REST API, dashboard web</li><li>Recepción de datos desde sensor CGM</li></ul>
+        </div>
+      </div>
+      <div class="split">
+        <div class="panel">
+          <h3>Fortalezas</h3>
+          <ul><li>Comunidad activa, despliegue cloud flexible.</li><li>Visualización clara para intervención temprana.</li></ul>
+        </div>
+        <div class="right">
+          <h4>Relación con proyecto</h4>
+          <ul><li>Monitoreo remoto</li><li>Alertas</li><li>Interoperabilidad FHIR</li><li>Analítica poblacional</li></ul>
+        </div>
+      </div>
+    </article>
+
+    <article class="slide" id="s4">
+      <div class="slide-no">4 / 7</div>
+      <div class="kicker">Monitoreo implantable</div>
+      <h2>Medtronic CareLink Network</h2>
+      <p class="lead">Monitoreo remoto de dispositivos implantables con detección temprana de eventos clínicos y reportes estructurados.</p>
+      <div class="solution-grid">
+        <div class="s-card">
+          <h3 class="s-title">Problema</h3>
+          <ul class="bullet"><li>Reducir visitas presenciales y detectar eventos críticos a tiempo.</li></ul>
+        </div>
+        <div class="s-card">
+          <h3 class="s-title">Arquitectura</h3>
+          <ul class="bullet"><li>Infraestructura cloud propia</li><li>Telemetría de dispositivo + dashboard clínico + app móvil</li></ul>
+        </div>
+      </div>
+      <div class="split">
+        <div class="panel"><h3>Fortalezas</h3><ul><li>Diseñado para continuidad clínica y dispositivos cardíacos.</li><li>Flujo de alertas orientado a seguimiento del riesgo.</li></ul></div>
+        <div class="right"><h4>Punto de decisión</h4><ul><li>Alto nivel clínico.</li><li>Requiere ecosistema técnico de fabricante.</li><li>Muy útil en entornos cardíacos.</li></ul></div>
+      </div>
+    </article>
+
+    <article class="slide" id="s5">
+      <div class="slide-no">5 / 7</div>
+      <div class="kicker">Atención primaria + interoperabilidad</div>
+      <h2>OPS All-in-One (PAHO)</h2>
+      <p class="lead">Solución modular para teleconsulta, historia clínica e integración entre servicios, pensada para instituciones con recursos limitados.</p>
+      <div class="solution-grid">
+        <div class="s-card"><h3 class="s-title">Arquitectura</h3><ul class="bullet"><li>OpenEMR, Laravel, Node.js, Jitsi</li><li>Docker + API REST + HL7 FHIR</li></ul></div>
+        <div class="s-card"><h3 class="s-title">Uso clave</h3><ul class="bullet"><li>Teleconsulta segura y registro clínico centralizado</li><li>Transformación a estándar para sistemas externos</li></ul></div>
+      </div>
+      <div class="flow">
+        <div class="step"><strong>Paciente</strong><span>Agendamiento</span></div>
+        <div class="step"><strong>Clínico</strong><span>Consulta remota</span></div>
+        <div class="step"><strong>Datos</strong><span>Registro y sincronización</span></div>
+        <div class="step"><strong>Plataforma</strong><span>Intercambio FHIR</span></div>
+      </div>
+      <div class="footer"><span>Ideal para instituciones con enfoque de red asistencial pública</span><span>Escalable por módulos</span></div>
+    </article>
+
+    <article class="slide" id="s6">
+      <div class="slide-no">6 / 7</div>
+      <div class="kicker">Registros clínicos y comunidad</div>
+      <h2>OpenSRP + Bahmni + OpenEMR + GNU Health + OpenMRS</h2>
+      <p class="lead">Conjunto de plataformas centradas en registro comunitario/hospitalario, adaptabilidad y soberanía de datos.</p>
+      <div class="section">
+        <div class="card"><h3 class="title">OpenSRP</h3><p class="small-note">Gestión comunitaria móvil y offline-first; útil en terreno, sincronización posterior y seguimiento poblacional.</p></div>
+        <div class="card"><h3 class="title">Bahmni</h3><p class="small-note">Gestión hospitalaria clínica + laboratorio con OpenMRS y OpenELIS, apta para operación institucional.</p></div>
+      </div>
+      <div class="section">
+        <div class="card"><h3 class="title">OpenEMR</h3><p class="small-note">Alternativa completa para práctica médica: citas, prescripción y facturación, con ecosistema PHP/MariaDB.</p></div>
+        <div class="card"><h3 class="title">GNU Health / OpenMRS</h3><p class="small-note">Opciones robustas de HIS y extensibilidad por programas de salud pública y clínica amplia.</p></div>
+      </div>
+      <div class="panel"><h3>Mensaje para comité</h3><p class="small-note">Estas plataformas son excelentes para independencia tecnológica y adaptación local, aunque varía el costo de mantenimiento e implementación.</p></div>
+    </article>
+
+    <article class="slide" id="s7">
+      <div class="slide-no">7 / 7</div>
+      <div class="kicker">Conexión empresarial y cierre</div>
+      <h2>Meditecs Smart Connect + Recomendación</h2>
+      <p class="lead">Para integrar ecosistemas heterogéneos, un middleware inteligente evita ataduras y acelera interoperabilidad entre sistemas.</p>
+      <div class="section">
+        <div class="card"><h3 class="title">Qué resuelve</h3><p class="small-note">Modelado de servicios, transformación de formatos y enrutamiento de datos a destinos heterogéneos.</p></div>
+        <div class="card"><h3 class="title">Arquitectura sugerida</h3><p class="small-note">API Gateway/REST + OAuth + conectores (SOAP, FHIR, TCP/MLLP) con supervisión continua.</p></div>
+      </div>
+      <div class="row">
+        <div class="metric"><div class="n">1º</div><div class="t">Prioridad: interoperabilidad</div></div>
+        <div class="metric"><div class="n">2º</div><div class="t">Prioridad: monitoreo remoto</div></div>
+        <div class="metric"><div class="n">3º</div><div class="t">Prioridad: telemedicina</div></div>
+      </div>
+      <div class="footer"><span>Resumen: avanzar con enfoque por fases, empezando por monitoreo + interoperabilidad</span><span>¿Siguiente paso? Plan de implementación 30 días</span></div>
+    </article>
+  </section>
+</body>
+</html>

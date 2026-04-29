@@ -1,0 +1,9 @@
+c_user	100001507578295	.facebook.com	/	2027-03-18T04:33:45.497Z	21		✓	None			Medium
+datr	1IiXaYnfvMBg-0wMkWq-1fK5	.facebook.com	/	2027-03-26T22:04:04.487Z	28	✓	✓	None			Medium
+fr	1xDiEJSr9QhmJvkE9.AWdSJ-yLYkeyFXFEAuJM7XHh6L3_rzAVGzwFSdfvw6OqPc5EtO4.Bpuisp..AAA.0.0.BpuiuV.AWcYXSss_XsxePR6_zOwFDLZyh8	.facebook.com	/	2026-06-16T04:35:33.438Z	122	✓	✓	None			Medium
+presence	C%7B%22t3%22%3A%5B%5D%2C%22utc3%22%3A1773808536100%2C%22v%22%3A1%7D	.facebook.com	/	Session	75		✓				Medium
+ps_l	1	.facebook.com	/	2027-04-20T18:07:25.303Z	5	✓	✓	Lax			Medium
+ps_n	1	.facebook.com	/	2027-04-20T18:07:25.303Z	5	✓	✓	None			Medium
+sb	1IiXaWAjvAa84-crNv2UfrpY	.facebook.com	/	2027-03-26T22:08:40.440Z	26	✓	✓	None			Medium
+wd	350x945	.facebook.com	/	2026-03-25T04:42:00.000Z	9		✓	Lax			Medium
+xs	19%3Ai2Hlou8mlTMekg%3A2%3A1771538916%3A-1%3A-1%3A%3AAczA3uJFBKGquRhF3tUyGNaDOhosjfyUSjY4n8LEFFI	.facebook.com	/	2027-03-18T04:33:45.497Z	97	✓	✓	None			Medium

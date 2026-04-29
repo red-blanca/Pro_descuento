@@ -1,0 +1,21 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", sans-serif;
+  line-height: 1.45;
+  font-weight: 400;
+  color: #ecf4ff;
+  background: #09121d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+a {
+  color: inherit;
+}
