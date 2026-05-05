@@ -4,9 +4,9 @@ import {
   Download,
   Play,
   AlertTriangle,
-  Loader2
+  Loader2,
+  FileJson
 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import './index.css'
 
 const API = 'http://127.0.0.1:8020'
@@ -141,23 +141,23 @@ function App() {
     }
   }
 
-  const exportExcel = () => {
+  const exportJson = () => {
     if (!results || !results.items.length) return
 
-    const rows = results.items.map((item, index) => ({
-      'Posicion': index + 1,
-      'Titulo': item.title,
-      'Precio Formateado': item.formatted_price,
-      'Precio Num': item.price,
-      'Tienda': item.retail,
-      'Descuento %': item.discount_percentage,
-      'Link': item.url
-    }))
-
-    const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(rows)
-    XLSX.utils.book_append_sheet(wb, ws, "Knasta")
-    XLSX.writeFile(wb, `Knasta_Export_${new Date().getTime()}.xlsx`)
+    const jsonString = JSON.stringify(results.items, null, 2)
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Knasta_Export_${new Date().getTime()}.json`
+    document.body.appendChild(a)
+    a.click()
+    
+    setTimeout(() => {
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }, 0)
   }
 
   const setPreset = (type) => {
@@ -321,9 +321,9 @@ function App() {
               )}
             </button>
             {results && results.items.length > 0 && (
-              <button type="button" className="btn btn-secondary" onClick={exportExcel}>
-                <Download size={20} />
-                Exportar a Excel
+              <button type="button" className="btn btn-secondary" onClick={exportJson}>
+                <FileJson size={20} />
+                Exportar JSON
               </button>
             )}
           </div>

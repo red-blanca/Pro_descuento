@@ -169,19 +169,18 @@ def export(payload: SearchPayload):
     if payload.scan_scope == "complete":
         limit = 10000
 
-    with tempfile.NamedTemporaryFile(prefix="travel_export_", suffix=".xlsx", delete=False) as tmp:
-        path = Path(tmp.name)
-
     try:
         items, _meta = _collect(payload, limit)
-        path.write_bytes(travel.build_xlsx_bytes(items))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Error exportando: {exc}") from exc
 
+    path = Path(tempfile.mktemp(prefix="travel_export_", suffix=".json"))
+    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
     return FileResponse(
         path=path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"travel_export_{int(time.time())}.xlsx",
+        media_type="application/json",
+        filename=f"travel_export_{int(time.time())}.json",
     )
 
 

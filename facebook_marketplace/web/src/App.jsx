@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import {
-  ArrowLeft, Clock3, Cookie, FileSpreadsheet, Hash,
+  ArrowLeft, Clock3, Cookie, FileJson, Hash,
   Search, SlidersHorizontal, Store, AlertTriangle, CheckCircle2, Settings
 } from 'lucide-react'
 import './App.css'
@@ -269,10 +269,10 @@ function App() {
         const blob = await res.blob()
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
-        a.href = url; a.download = `facebook_marketplace_${Date.now()}.xlsx`
+        a.href = url; a.download = `facebook_marketplace_${Date.now()}.json`
         document.body.appendChild(a); a.click(); a.remove()
         window.URL.revokeObjectURL(url)
-        setStatus('Excel exportado correctamente ✓')
+        setStatus('JSON exportado correctamente ✓')
       } catch (err) { setStatus(err.message) }
     })
   }
@@ -543,7 +543,7 @@ function App() {
             {loadingExport ? (
               <span className="btn-content"><span className="loader" /> Exportando... {(exportRunMs / 1000).toFixed(1)}s</span>
             ) : (
-              <span className="btn-content"><FileSpreadsheet size={16} />Exportar Excel</span>
+              <span className="btn-content"><FileJson size={16} />Exportar JSON</span>
             )}
           </button>
         </div>

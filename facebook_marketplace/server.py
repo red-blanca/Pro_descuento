@@ -289,14 +289,13 @@ def export_results(payload: SearchPayload):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Error exportando: {exc}") from exc
 
-    with tempfile.NamedTemporaryFile(prefix="fbm_export_", suffix=".xlsx", delete=False) as tmp:
-        export_path = Path(tmp.name)
-    fbm.export_xlsx(result.all_items, query=payload.query.strip() or "marketplace", output_path=str(export_path))
+    export_path = Path(tempfile.mktemp(prefix="fbm_export_", suffix=".json"))
+    export_path.write_text(json.dumps(result.all_items, ensure_ascii=False, indent=2), encoding="utf-8")
     elapsed = time.perf_counter() - started
-    filename = f"facebook_marketplace_export_{int(time.time())}.xlsx"
+    filename = f"facebook_marketplace_export_{int(time.time())}.json"
     return FileResponse(
         path=export_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type="application/json",
         filename=filename,
         headers={
             "X-Elapsed-Seconds": str(round(elapsed, 2)),

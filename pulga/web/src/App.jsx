@@ -3,7 +3,7 @@ import {
   ArrowLeft,
   Calculator,
   Clock3,
-  FileSpreadsheet,
+  FileJson,
   Hash,
   LayoutGrid,
   MapPin,
@@ -208,12 +208,12 @@ function App() {
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `pulga_export_${Date.now()}.xlsx`
+        a.download = `pulga_export_${Date.now()}.json`
         document.body.appendChild(a)
         a.click()
         a.remove()
         window.URL.revokeObjectURL(url)
-        setStatus('Excel exportado correctamente.')
+        setStatus('JSON exportado correctamente.')
       } catch (err) {
         setStatus(err.message)
       }
@@ -298,7 +298,7 @@ function App() {
           <span className="badge">Marketplace 2da Mano</span>
         </div>
         <p className="hint section-reveal fade-2">
-          Busca productos de segunda mano en Pulga.cl. Filtra, previsualiza y exporta a Excel.
+          Busca productos de segunda mano en Pulga.cl. Filtra, previsualiza y exporta a JSON.
         </p>
 
         {/* ── Search Section ── */}
@@ -439,7 +439,7 @@ function App() {
             {loadingExport ? (
               <span className="btn-content"><span className="loader" />Exportando... {(exportRunMs / 1000).toFixed(1)}s</span>
             ) : (
-              <span className="btn-content"><FileSpreadsheet size={16} />Exportar Excel</span>
+              <span className="btn-content"><FileJson size={16} />Exportar JSON</span>
             )}
           </button>
         </div>
@@ -483,7 +483,7 @@ function App() {
           {status && <div className="status status-pulse">{status}</div>}
           {(loadingCount || loadingExport || loadingPreview) && (
             <div className="running-hint">
-              Proceso activo: {loadingCount ? 'conteo' : loadingPreview ? 'previsualizacion' : 'exportacion Excel'}
+              Proceso activo: {loadingCount ? 'conteo' : loadingPreview ? 'previsualizacion' : 'exportacion JSON'}
             </div>
           )}
         </div>

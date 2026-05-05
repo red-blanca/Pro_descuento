@@ -253,18 +253,16 @@ def export_results(payload: SearchPayload):
     if not items:
         raise HTTPException(status_code=400, detail="No se encontraron resultados.")
 
-    with tempfile.NamedTemporaryFile(prefix="pulga_export_", suffix=".xlsx", delete=False) as tmp:
-        export_path = Path(tmp.name)
-
-    export_path.write_bytes(scraper.build_xlsx_bytes(items))
+    export_path = Path(tempfile.mktemp(prefix="pulga_export_", suffix=".json"))
+    export_path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
     query_part = payload.query.strip() or payload.category.strip() or "pulga"
     safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in query_part)[:30]
-    filename = f"pulga_{safe_name}_{len(items)}items.xlsx"
+    filename = f"pulga_{safe_name}_{len(items)}items.json"
 
     return FileResponse(
         path=export_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type="application/json",
         filename=filename,
     )
 

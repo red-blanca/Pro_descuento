@@ -34,7 +34,7 @@ DOMAIN_BY_COUNTRY = {
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
+    "Chrome/131.0.0.0 Safari/537.36"
 )
 
 LOCAL_SHIPPING_FILTER = "SHIPPING*ORIGIN_10215068"
@@ -171,6 +171,13 @@ def _read_html(opener: Any, url: str, timeout: int) -> str:
         "Pragma": "no-cache",
         "Referer": "https://www.google.com/",
         "Upgrade-Insecure-Requests": "1",
+        "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1"
     }
     if REQUEST_COOKIE_HEADER:
         headers["Cookie"] = REQUEST_COOKIE_HEADER
@@ -517,8 +524,189 @@ def extract_nordic_context(html: str) -> dict[str, Any]:
         return {}
 
 
-def extract_search_api_from_html(html: str) -> dict[str, Any]:
+def _normalize_polycard_to_result(polycard_entry: dict[str, Any], url_prefix: str = "https://", country: str = "cl") -> dict[str, Any] | None:
+    """Convert a polycard result entry into the legacy search_api result format."""
+    poly = polycard_entry.get("polycard")
+    if not isinstance(poly, dict):
+        return None
+
+    meta = poly.get("metadata", {})
+    comps = poly.get("components", [])
+    pics = poly.get("pictures", [])
+    item_id = meta.get("id", "")
+
+    if not item_id or not item_id.startswith("MLC"):
+        return None
+
+    # Skip ads (is_pad items have tracking URLs, not direct product links)
+    # We still extract them but mark them; downstream can filter if needed
+
+    title = ""
+    price_value = None
+    original_price_value = None
+    discount_pct = None
+    condition_text = ""
+
+    for c in comps:
+        if not isinstance(c, dict):
+            continue
+        ctype = c.get("type", "")
+        if ctype == "title":
+            td = c.get("title", {})
+            title = td.get("text", "") if isinstance(td, dict) else str(td or "")
+        elif ctype == "price":
+            pd = c.get("price", {})
+            if isinstance(pd, dict):
+                cp = pd.get("current_price", {})
+                if isinstance(cp, dict):
+                    price_value = cp.get("value")
+                op = pd.get("original_price", {})
+                if isinstance(op, dict):
+                    original_price_value = op.get("value")
+                disc = pd.get("discount", {})
+                if isinstance(disc, dict):
+                    discount_pct = disc.get("value")
+        elif ctype == "highlight":
+            hl = c.get("highlight", {})
+            if isinstance(hl, dict):
+                label = hl.get("label", {})
+                if isinstance(label, dict):
+                    hl_text = str(label.get("text", "")).lower()
+                    if "reacondicion" in hl_text:
+                        condition_text = "refurbished"
+                    elif "usado" in hl_text:
+                        condition_text = "used"
+
+    # Build permalink
+    domain = DOMAIN_BY_COUNTRY.get(country, "mercadolibre.cl")
+    permalink = f"https://articulo.{domain}/{item_id}"
+
+    # Extract thumbnail from pictures
+    thumbnail = ""
+    if isinstance(pics, dict):
+        # New polycard format: pics = {pictures: [{id: "..."}], square: "Q", ...}
+        pic_list = pics.get("pictures", [])
+        square = pics.get("square", "Q")
+        if pic_list and isinstance(pic_list, list):
+            p0 = pic_list[0]
+            if isinstance(p0, dict) and p0.get("id"):
+                pic_id = p0["id"]
+                thumbnail = f"https://http2.mlstatic.com/D_{square}_NP_{pic_id}-E.webp"
+    elif isinstance(pics, list) and pics:
+        p0 = pics[0]
+        if isinstance(p0, dict):
+            thumbnail = str(p0.get("url", "") or p0.get("src", "") or "")
+        elif isinstance(p0, str):
+            thumbnail = p0
+
+    # Calculate discount if not provided
+    if discount_pct is None and price_value and original_price_value:
+        try:
+            if float(original_price_value) > float(price_value):
+                discount_pct = round(((float(original_price_value) - float(price_value)) / float(original_price_value)) * 100)
+        except (TypeError, ValueError):
+            pass
+
+    return {
+        "id": item_id,
+        "title": title,
+        "price": price_value,
+        "original_price": original_price_value,
+        "permalink": permalink,
+        "thumbnail": thumbnail,
+        "condition": condition_text or None,
+        "discount_percent": discount_pct,
+        "is_pad": meta.get("is_pad") == "true",
+    }
+
+
+def _extract_polycard_search_api(ctx: dict[str, Any], country: str = "cl") -> dict[str, Any]:
+    """Extract search data from the new polycard-based HTML structure and
+    return it in a format compatible with the legacy search_api dict."""
+    app = ctx.get("appProps", {})
+
+    # Try multiple paths to find initialState
+    init_state = None
+    for init_path in [
+        (app, "pageProps", "initialState"),
+        (app, "sharedState", "search"),
+    ]:
+        node = init_path[0]
+        for key in init_path[1:]:
+            if isinstance(node, dict):
+                node = node.get(key, {})
+            else:
+                node = {}
+                break
+        if isinstance(node, dict) and node.get("results"):
+            init_state = node
+            break
+
+    if not init_state:
+        return {}
+
+    raw_results = init_state.get("results", [])
+    if not raw_results:
+        return {}
+
+    # Get polycard context for URL prefix
+    poly_ctx = init_state.get("polycard_context", {})
+    url_prefix = poly_ctx.get("url_prefix", "https://")
+
+    # Normalize polycards into legacy result format
+    results = []
+    for entry in raw_results:
+        if not isinstance(entry, dict):
+            continue
+        # Skip non-polycard entries (filters, interventions, etc.)
+        if entry.get("id") != "POLYCARD":
+            continue
+        normalized = _normalize_polycard_to_result(entry, url_prefix, country)
+        if normalized and normalized.get("title"):
+            results.append(normalized)
+
+    if not results:
+        return {}
+
+    # Extract pagination info
+    pag = init_state.get("pagination", {})
+    page_count = int(pag.get("page_count") or 0)
+    results_limit = int(pag.get("results_limit") or 2000)
+    page_size = len(results)
+
+    # Get total from melidata or estimate from pagination
+    meli = init_state.get("melidata_track", {})
+    event_data = meli.get("event_data", {}) if isinstance(meli, dict) else {}
+    total = event_data.get("total_results")
+    if not total:
+        total = page_count * page_size if page_count else len(results)
+
+    # Build pagination URLs list for multi-page fetching
+    pagination_urls = []
+    pag_nodes = pag.get("pagination_nodes_url", [])
+    for node in pag_nodes:
+        if isinstance(node, dict) and node.get("url"):
+            pagination_urls.append(node["url"])
+
+    return {
+        "results": results,
+        "paging": {
+            "total": int(total or len(results)),
+            "primary_results": min(int(total or 0), results_limit),
+            "offset": 0,
+            "limit": page_size,
+        },
+        "available_filters": [],
+        "filters": [],
+        "_pagination_urls": pagination_urls,
+        "_polycard_format": True,
+    }
+
+
+def extract_search_api_from_html(html: str, country: str = "cl") -> dict[str, Any]:
     ctx = extract_nordic_context(html)
+
+    # Try legacy paths first (search_api inside pagination)
     paths = [
         ("appProps", "pageProps", "initialState", "pagination", "search_api"),
         ("appProps", "sharedState", "search", "pagination", "search_api"),
@@ -531,8 +719,14 @@ def extract_search_api_from_html(html: str) -> dict[str, Any]:
                 node = None
                 break
             node = node.get(key)
-        if isinstance(node, dict):
+        if isinstance(node, dict) and node.get("results"):
             return node
+
+    # Fallback: extract from new polycard-based structure
+    polycard_api = _extract_polycard_search_api(ctx, country)
+    if polycard_api:
+        return polycard_api
+
     return {}
 
 
@@ -540,11 +734,11 @@ def search_metadata_from_url(url: str, country: str, timeout: int = 20) -> dict[
     html = fetch_url_html(url, timeout=timeout)
     if looks_like_traffic_block(html):
         _raise_traffic_block()
-    search_api = extract_search_api_from_html(html)
+    search_api = extract_search_api_from_html(html, country=country)
     if not search_api:
         opener, jar = _build_opener()
         html = fetch_page_with_challenge(opener, jar, url, country, timeout=timeout)
-        search_api = extract_search_api_from_html(html)
+        search_api = extract_search_api_from_html(html, country=country)
     return search_api
 
 
@@ -950,8 +1144,10 @@ def extract_nordic_context(html: str) -> dict[str, Any]:
         return {}
 
 
-def extract_search_api_from_html(html: str) -> dict[str, Any]:
+def extract_search_api_from_html(html: str, country: str = "cl") -> dict[str, Any]:
     ctx = extract_nordic_context(html)
+
+    # Try legacy paths first (search_api inside pagination)
     paths = [
         ("appProps", "pageProps", "initialState", "pagination", "search_api"),
         ("appProps", "sharedState", "search", "pagination", "search_api"),
@@ -964,8 +1160,14 @@ def extract_search_api_from_html(html: str) -> dict[str, Any]:
                 node = None
                 break
             node = node.get(key)
-        if isinstance(node, dict):
+        if isinstance(node, dict) and node.get("results"):
             return node
+
+    # Fallback: extract from new polycard-based structure
+    polycard_api = _extract_polycard_search_api(ctx, country)
+    if polycard_api:
+        return polycard_api
+
     return {}
 
 
@@ -973,11 +1175,11 @@ def search_metadata_from_url(url: str, country: str, timeout: int = 20) -> dict[
     html = fetch_url_html(url, timeout=timeout)
     if looks_like_traffic_block(html):
         _raise_traffic_block()
-    search_api = extract_search_api_from_html(html)
+    search_api = extract_search_api_from_html(html, country=country)
     if not search_api:
         opener, jar = _build_opener()
         html = fetch_page_with_challenge(opener, jar, url, country, timeout=timeout)
-        search_api = extract_search_api_from_html(html)
+        search_api = extract_search_api_from_html(html, country=country)
     return search_api
 
 

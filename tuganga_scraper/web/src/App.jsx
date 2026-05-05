@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Download, Loader2, Play, Search, SlidersHorizontal } from 'lucide-react'
-import * as XLSX from 'xlsx'
+
 
 const MODES = [
   { id: 'search', label: 'Busqueda' },
@@ -136,7 +136,7 @@ function App() {
     }
   }
 
-  const exportExcel = () => {
+  const exportJSON = () => {
     if (!results?.items?.length) return
     const rows = results.items.map((item, index) => ({
       Posicion: index + 1,
@@ -150,10 +150,15 @@ function App() {
       Disponible: item.available ? 'Si' : 'No',
       Link: item.url,
     }))
-    const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(rows)
-    XLSX.utils.book_append_sheet(wb, ws, 'TuGanga')
-    XLSX.writeFile(wb, `TuGanga_Export_${Date.now()}.xlsx`)
+    const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `TuGanga_Export_${Date.now()}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
   }
 
   return (
@@ -305,9 +310,9 @@ function App() {
               )}
             </button>
             {results?.items?.length > 0 && (
-              <button className="btn secondary" type="button" onClick={exportExcel}>
+              <button className="btn secondary" type="button" onClick={exportJSON}>
                 <Download size={18} />
-                Exportar Excel
+                Exportar JSON
               </button>
             )}
           </div>

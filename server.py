@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import hashlib
 import json
 import subprocess
@@ -16,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import mercadolibre as ml
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent
 SCRIPT = ROOT / "mercadolibre.py"
@@ -240,7 +242,7 @@ def _count_in_process(payload: SearchPayload) -> dict:
     )
 
     if condition_filter != "any":
-        items = [item for item in items if item.get("condition") == condition_filter]
+        items = [item for item in items if not item.get("condition") or item.get("condition") == condition_filter]
         if not fetch_all:
             items = items[:limit]
 
@@ -375,21 +377,21 @@ def export_results(payload: SearchPayload):
     if not payload.query.strip() and not payload.search_url.strip() and not payload.category_url.strip():
         raise HTTPException(status_code=400, detail="Debes indicar búsqueda, categoría o URL exacta.")
 
-    with tempfile.NamedTemporaryFile(prefix="ml_export_", suffix=".xlsx", delete=False) as tmp:
-        export_path = Path(tmp.name)
     limit = max(1, min(int(payload.preview_limit or 2000), 10000))
     if payload.scan_scope == "complete" or payload.all_results:
         limit = 10000
     try:
         items, _meta = _collect_preview_items(payload, limit)
-        export_path.write_bytes(ml.build_xlsx_bytes(items))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Error exportando: {exc}") from exc
 
+    export_path = Path(tempfile.mktemp(prefix="ml_export_", suffix=".json"))
+    export_path.write_text(json.dumps(items, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
     return FileResponse(
         path=export_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=export_path.name,
+        media_type="application/json",
+        filename=f"ml_export_{int(time.time())}.json",
     )
 
 
@@ -442,6 +444,149 @@ def categories(payload: SearchPayload) -> dict:
         return {"success": True, "categories": ml.categories_from_search_api(meta)}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Error cargando categorías: {exc}") from exc
+
+
+class CookiePayload(BaseModel):
+    raw_text: str = Field(default="")
+
+
+def _parse_devtools_cookies(raw: str) -> str:
+    """Parse cookie text from Chrome DevTools table copy-paste format.
+    Supports multiple formats:
+      - Tab-separated DevTools table rows (name\tvalue\tdomain...)
+      - Multi-space separated rows (tabs pasted as spaces)
+      - Simple name=value; pairs (single line or multi-line)
+    Returns a cleaned 'name=value; name=value' string.
+    """
+    raw = raw.strip()
+    if not raw:
+        return ""
+
+    pairs: list[str] = []
+    seen: set[str] = set()
+
+    # Header words to skip (DevTools column headers)
+    skip_names = {
+        "name", "value", "domain", "path", "expires", "size",
+        "httponly", "secure", "samesite", "partition", "priority",
+        "max-age", "expires / max-age",
+    }
+
+    def _add(name: str, value: str) -> None:
+        name = name.strip()
+        value = value.strip()
+        if not name or name.lower() in skip_names:
+            return
+        if name.startswith("#"):
+            return
+        if name not in seen:
+            seen.add(name)
+            pairs.append(f"{name}={value}")
+
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        # Try tab-separated first (Chrome DevTools native copy)
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            _add(parts[0], parts[1])
+            continue
+
+        # Try multi-space separated (tabs pasted as spaces)
+        space_parts = re.split(r"\s{2,}", line)
+        if len(space_parts) >= 2:
+            candidate_name = space_parts[0].strip()
+            candidate_value = space_parts[1].strip()
+            # Validate it looks like a cookie (name shouldn't have spaces)
+            if candidate_name and " " not in candidate_name and candidate_value:
+                _add(candidate_name, candidate_value)
+                continue
+
+        # Try semicolon-separated name=value pairs (single line)
+        if "=" in line:
+            for segment in line.split(";"):
+                segment = segment.strip()
+                if "=" not in segment:
+                    continue
+                name, _, value = segment.partition("=")
+                _add(name, value)
+
+    return "; ".join(pairs)
+
+
+@app.post("/api/cookies")
+def save_cookies(payload: CookiePayload) -> dict:
+    raw = payload.raw_text.strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="No se proporcionó texto de cookies.")
+
+    parsed = _parse_devtools_cookies(raw)
+    if not parsed:
+        raise HTTPException(status_code=400, detail="No se encontraron cookies válidas en el texto proporcionado.")
+
+    cookie_path = ROOT / "cookies.txt"
+    cookie_path.write_text(parsed, encoding="utf-8")
+
+    cookie_names = [p.split("=", 1)[0] for p in parsed.split("; ")]
+    return {
+        "success": True,
+        "cookie_count": len(cookie_names),
+        "cookie_names": cookie_names,
+        "file": str(cookie_path),
+    }
+
+
+@app.get("/api/cookies/status")
+def cookies_status() -> dict:
+    cookie_path = ROOT / "cookies.txt"
+    if not cookie_path.exists():
+        return {
+            "exists": False,
+            "cookie_count": 0,
+            "cookie_names": [],
+            "file_size": 0,
+            "last_modified": None,
+            "age_minutes": None,
+        }
+
+    content = cookie_path.read_text(encoding="utf-8").strip()
+    if not content:
+        return {
+            "exists": True,
+            "cookie_count": 0,
+            "cookie_names": [],
+            "file_size": 0,
+            "last_modified": None,
+            "age_minutes": None,
+        }
+
+    stat = cookie_path.stat()
+    mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+    age_minutes = round((datetime.now(tz=timezone.utc) - mtime).total_seconds() / 60, 1)
+
+    names = []
+    for segment in content.split(";"):
+        segment = segment.strip()
+        if "=" in segment:
+            name = segment.split("=", 1)[0].strip()
+            if name:
+                names.append(name)
+
+    essential = ["_csrf", "ssid", "orguseridp", "_d2id"]
+    found_essential = [n for n in essential if n in names]
+
+    return {
+        "exists": True,
+        "cookie_count": len(names),
+        "cookie_names": names,
+        "essential_found": found_essential,
+        "essential_missing": [n for n in essential if n not in names],
+        "file_size": stat.st_size,
+        "last_modified": mtime.isoformat(),
+        "age_minutes": age_minutes,
+    }
 
 
 @app.get("/api/health")

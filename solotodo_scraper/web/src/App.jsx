@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   Calculator,
   Download,
-  FileSpreadsheet,
+  FileJson,
   Loader2,
   Search,
   SlidersHorizontal,
@@ -139,14 +139,14 @@ function App() {
 
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.detail || 'Error exportando Excel')
+        throw new Error(data.detail || 'Error exportando JSON')
       }
 
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `solotodo_export_${Date.now()}.xlsx`
+      link.download = `solotodo_export_${Date.now()}.json`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -308,12 +308,12 @@ function App() {
               Calcular
             </button>
             <button type="submit" className="button secondary" disabled={!isValid || Boolean(loading)}>
-              {loading === 'preview' ? <Loader2 className="spin" size={17} /> : <FileSpreadsheet size={17} />}
+              {loading === 'preview' ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
               Previsualizar
             </button>
             <button type="button" className="button primary" disabled={!isValid || Boolean(loading)} onClick={exportExcel}>
               {loading === 'export' ? <Loader2 className="spin" size={17} /> : <Download size={17} />}
-              Exportar Excel
+              Exportar JSON
             </button>
           </div>
         </form>

@@ -1,5 +1,6 @@
 import time
 import re
+import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -74,19 +75,19 @@ def export_results(payload: SearchPayload):
             limit=payload.limit
         )
         result = api.execute_search(opts)
-        xlsx_content = api.build_xlsx_bytes(result.items)
         
         # Generar nombre de archivo seguro
         safe_query = re.sub(r"[^a-zA-Z0-9_-]+", "_", payload.query)[:40].strip("_") or "ofertas"
-        filename = f"descuentos_rata_{safe_query}.xlsx"
+        filename = f"descuentos_rata_{safe_query}.json"
         
-        # Guardar temporalmente para FileResponse
+        json_content = json.dumps(result.items, ensure_ascii=False, indent=2).encode('utf-8')
+        
         temp_path = Path(f"/tmp/{filename}")
-        temp_path.write_bytes(xlsx_content)
+        temp_path.write_bytes(json_content)
         
         return FileResponse(
             path=temp_path,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            media_type="application/json",
             filename=filename
         )
     except Exception as exc:
@@ -94,7 +95,11 @@ def export_results(payload: SearchPayload):
 
 @app.get("/")
 def serve_index():
-    return FileResponse(WEB_DIR / "index.html")
+    response = FileResponse(WEB_DIR / "index.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @app.get("/api/health")
 def health():

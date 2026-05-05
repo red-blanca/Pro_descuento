@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Calculator, Download, FileSpreadsheet, Loader2, Search, SlidersHorizontal } from 'lucide-react'
+import { AlertTriangle, Calculator, Download, FileJson, Loader2, Search, SlidersHorizontal } from 'lucide-react'
 import './App.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8050/api'
@@ -118,13 +118,13 @@ function App() {
       })
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.detail || 'Error exportando Excel')
+        throw new Error(data.detail || 'Error exportando JSON')
       }
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `travel_export_${Date.now()}.xlsx`
+      link.download = `travel_export_${Date.now()}.json`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -235,12 +235,12 @@ function App() {
               Calcular
             </button>
             <button type="submit" className="button secondary" disabled={Boolean(loading)}>
-              {loading === 'preview' ? <Loader2 className="spin" size={17} /> : <FileSpreadsheet size={17} />}
+              {loading === 'preview' ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
               Previsualizar
             </button>
             <button type="button" className="button primary" disabled={Boolean(loading)} onClick={exportExcel}>
               {loading === 'export' ? <Loader2 className="spin" size={17} /> : <Download size={17} />}
-              Exportar Excel
+              Exportar JSON
             </button>
           </div>
         </form>

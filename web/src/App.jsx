@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Calculator, Clock3, FileSpreadsheet, Globe, Hash, Search, Settings2, SlidersHorizontal } from 'lucide-react'
+import { ArrowLeft, Calculator, Clock3, Cookie, FileJson, Globe, Hash, Search, Settings2, ShieldCheck, ShieldAlert, ShieldX, SlidersHorizontal } from 'lucide-react'
 import './App.css'
 
 function App() {
@@ -48,6 +48,68 @@ function App() {
     Estado: '',
     Link: '',
   })
+  const [cookieModalOpen, setCookieModalOpen] = useState(false)
+  const [cookieRawText, setCookieRawText] = useState('')
+  const [cookieStatus, setCookieStatus] = useState(null)
+  const [cookieSaving, setCookieSaving] = useState(false)
+  const [cookieMsg, setCookieMsg] = useState('')
+
+  const fetchCookieStatus = async () => {
+    try {
+      const res = await fetch('/api/cookies/status')
+      if (res.ok) {
+        const data = await res.json()
+        setCookieStatus(data)
+      }
+    } catch {}
+  }
+
+  useEffect(() => {
+    fetchCookieStatus()
+  }, [])
+
+  const saveCookies = async () => {
+    if (!cookieRawText.trim()) return
+    setCookieSaving(true)
+    setCookieMsg('')
+    try {
+      const res = await fetch('/api/cookies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_text: cookieRawText }),
+      })
+      if (!res.ok) {
+        let errorMsg = 'Error guardando cookies'
+        try {
+          const data = await res.json()
+          errorMsg = data.detail || errorMsg
+        } catch (e) {
+          // Ignore JSON parse error
+        }
+        throw new Error(errorMsg)
+      }
+      const data = await res.json()
+      setCookieMsg(`✅ ${data.cookie_count} cookies guardadas correctamente`)
+      setCookieRawText('')
+      await fetchCookieStatus()
+    } catch (err) {
+      setCookieMsg(`❌ ${err.message}`)
+    } finally {
+      setCookieSaving(false)
+    }
+  }
+
+  const cookieHealth = useMemo(() => {
+    if (!cookieStatus || !cookieStatus.exists || cookieStatus.cookie_count === 0) {
+      return { color: 'red', label: 'Sin cookies', icon: 'x' }
+    }
+    const age = cookieStatus.age_minutes ?? 9999
+    const hasEssential = (cookieStatus.essential_found || []).length >= 2
+    if (age > 180 || !hasEssential) {
+      return { color: 'yellow', label: `${Math.round(age)}min - Posiblemente expiradas`, icon: 'warn' }
+    }
+    return { color: 'green', label: `${Math.round(age)}min - Activas`, icon: 'ok' }
+  }, [cookieStatus])
 
   const canSubmit = useMemo(
     () => Boolean(form.query.trim() || form.search_url.trim() || form.category_url.trim()),
@@ -162,19 +224,25 @@ function App() {
           body: JSON.stringify(form),
         })
         if (!res.ok) {
-          const data = await res.json()
-          throw new Error(data.detail || 'Error exportando')
+          let errorMsg = 'Error exportando'
+          try {
+            const data = await res.json()
+            errorMsg = data.detail || errorMsg
+          } catch (e) {
+            // Ignore JSON parse error on 500
+          }
+          throw new Error(errorMsg)
         }
         const blob = await res.blob()
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `mercadolibre_export_${Date.now()}.xlsx`
+        a.download = `mercadolibre_export_${Date.now()}.json`
         document.body.appendChild(a)
         a.click()
         a.remove()
         window.URL.revokeObjectURL(url)
-        setStatus('Excel exportado correctamente.')
+        setStatus('JSON exportado correctamente.')
       } catch (err) {
         setStatus(err.message)
       }
@@ -231,7 +299,7 @@ function App() {
       <main className="page">
         <section className="panel preview-page fade-in-section">
           <div className="hero section-reveal fade-1">
-            <h1>Previsualizacion de Excel</h1>
+            <h1>Previsualizacion de datos</h1>
             <button className="btn ghost" type="button" onClick={() => setView('main')}>
               <span className="btn-content"><ArrowLeft size={16} />Volver</span>
             </button>
@@ -300,10 +368,23 @@ function App() {
       <section className="panel visual-panel fade-in-section">
         <div className="hero section-reveal fade-1">
           <h1>MercadoLibre Export UI</h1>
-          <span className="badge">Diseno integrado</span>
+          <div className="hero-actions">
+            <button
+              className={`cookie-status-btn cookie-${cookieHealth.color}`}
+              type="button"
+              onClick={() => { setCookieMsg(''); setCookieModalOpen(true) }}
+              title="Gestionar cookies de MercadoLibre"
+            >
+              {cookieHealth.icon === 'ok' && <ShieldCheck size={14} />}
+              {cookieHealth.icon === 'warn' && <ShieldAlert size={14} />}
+              {cookieHealth.icon === 'x' && <ShieldX size={14} />}
+              <span>{cookieHealth.label}</span>
+            </button>
+            <span className="badge">Diseno integrado</span>
+          </div>
         </div>
         <p className="hint section-reveal fade-2">
-          Configura filtros, calcula cantidad de resultados y exporta Excel sin listar productos.
+          Configura filtros, calcula cantidad de resultados y exporta JSON sin listar productos.
         </p>
 
         <div className="section section-reveal fade-3">
@@ -471,10 +552,6 @@ function App() {
               onChange={(e) => onChange('search_url', e.target.value)}
             />
           </label>
-          <label className="full">
-            Archivo cookies (opcional)
-            <input value={form.cookie_file} onChange={(e) => onChange('cookie_file', e.target.value)} />
-          </label>
         </div>
         </div>
 
@@ -547,7 +624,7 @@ function App() {
                 Exportando... {(exportRunMs / 1000).toFixed(1)}s
               </span>
             ) : (
-              <span className="btn-content"><FileSpreadsheet size={16} />Exportar Excel</span>
+              <span className="btn-content"><FileJson size={16} />Exportar JSON</span>
             )}
           </button>
         </div>
@@ -590,12 +667,90 @@ function App() {
           {status && <div className="status status-pulse">{status}</div>}
           {(loadingExactCount || loadingExport || loadingPreview) && (
             <div className="running-hint">
-              Proceso activo: {loadingExactCount ? 'calculo exacto' : loadingPreview ? 'previsualizacion' : 'exportacion de Excel'}
+              Proceso activo: {loadingExactCount ? 'calculo exacto' : loadingPreview ? 'previsualizacion' : 'exportacion JSON'}
             </div>
           )}
         </div>
         <footer className="foot">MercadoLibre Export Tool v2.0 - Datos para uso personal.</footer>
       </section>
+
+      {cookieModalOpen && (
+        <div className="modal-overlay" onClick={() => setCookieModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2><Cookie size={20} /> Gestionar Cookies</h2>
+              <button className="modal-close" onClick={() => setCookieModalOpen(false)}>×</button>
+            </div>
+
+            <div className="cookie-info">
+              {cookieStatus && cookieStatus.exists ? (
+                <div className={`cookie-badge cookie-badge-${cookieHealth.color}`}>
+                  {cookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
+                  {cookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
+                  {cookieHealth.icon === 'x' && <ShieldX size={16} />}
+                  <div>
+                    <div className="cookie-badge-title">{cookieStatus.cookie_count} cookies guardadas</div>
+                    <div className="cookie-badge-sub">
+                      Ultima actualizacion: {cookieStatus.age_minutes != null ? `hace ${Math.round(cookieStatus.age_minutes)} min` : 'desconocida'}
+                    </div>
+                    {cookieStatus.essential_found && (
+                      <div className="cookie-badge-sub">
+                        Esenciales: {cookieStatus.essential_found.join(', ') || 'ninguna'}
+                        {cookieStatus.essential_missing?.length > 0 && (
+                          <span className="cookie-missing"> | Faltan: {cookieStatus.essential_missing.join(', ')}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="cookie-badge cookie-badge-red">
+                  <ShieldX size={16} />
+                  <div>
+                    <div className="cookie-badge-title">No hay cookies guardadas</div>
+                    <div className="cookie-badge-sub">Pega las cookies de MercadoLibre abajo</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="cookie-instructions">
+              <p><strong>Como obtener cookies:</strong></p>
+              <ol>
+                <li>Abre <a href="https://www.mercadolibre.cl" target="_blank" rel="noreferrer">mercadolibre.cl</a> e inicia sesion</li>
+                <li>Presiona <code>F12</code> → pestaña <strong>Application</strong> → <strong>Cookies</strong></li>
+                <li>Selecciona todas las filas (<code>Ctrl+A</code>) y copia (<code>Ctrl+C</code>)</li>
+                <li>Pega aqui abajo</li>
+              </ol>
+            </div>
+
+            <textarea
+              className="cookie-textarea"
+              placeholder={'Pega las cookies aqui...\n\nFormato aceptado:\n_csrf\tPQa_QjypzV5eo7Td...\twww.mercadolibre.cl\t/\t...\n_d2id\tedd0f3e4-dfd4...\t.mercadoclics.com\t/\t...'}
+              value={cookieRawText}
+              onChange={(e) => setCookieRawText(e.target.value)}
+              rows={10}
+            />
+
+            {cookieMsg && <div className="cookie-feedback">{cookieMsg}</div>}
+
+            <div className="modal-actions">
+              <button
+                className="btn warn"
+                disabled={!cookieRawText.trim() || cookieSaving}
+                onClick={saveCookies}
+              >
+                <span className="btn-content">
+                  {cookieSaving ? <><span className="loader" /> Guardando...</> : <><Cookie size={16} /> Guardar Cookies</>}
+                </span>
+              </button>
+              <button className="btn ghost" onClick={() => setCookieModalOpen(false)}>
+                <span className="btn-content">Cerrar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
