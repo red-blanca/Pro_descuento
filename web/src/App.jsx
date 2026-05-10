@@ -22,6 +22,8 @@ function App() {
     category_url: '',
     scan_scope: 'fast',
     preview_limit: 200,
+    strict_mode: false,
+    smart_filter: true,
   })
   const [exactCount, setExactCount] = useState(null)
   const [exactElapsed, setExactElapsed] = useState(null)
@@ -53,6 +55,71 @@ function App() {
   const [cookieStatus, setCookieStatus] = useState(null)
   const [cookieSaving, setCookieSaving] = useState(false)
   const [cookieMsg, setCookieMsg] = useState('')
+  const [globalForm, setGlobalForm] = useState({
+    query: '',
+    scan_scope: 'fast',
+    max_items_per_source: 10000,
+    min_price: 0,
+    max_price: 0,
+    min_discount: 0,
+    include_words_text: '',
+    exclude_words_text: '',
+    sources: [
+      'mercadolibre',
+      'facebook_marketplace',
+      'pulga',
+      'knasta',
+      'solotodo',
+      'travel',
+      'tuganga',
+      'descuentosrata',
+    ],
+    mercadolibre_word: '',
+    mercadolibre_search_url: '',
+    mercadolibre_condition: 'used',
+    sort_price: false,
+    include_international: false,
+    facebook_word: '',
+    facebook_marketplace_path: 'curico',
+    facebook_location_query: 'Curico, Maule, Chile',
+    facebook_latitude: -34.98749193781055,
+    facebook_longitude: -71.24675716218236,
+    facebook_radius_km: 35,
+    facebook_include_talca: true,
+    pulga_category: 'tecnologia',
+    pulga_condition: 'any',
+    pulga_city: '',
+    pulga_word: '',
+    knasta_category: '20106',
+    knasta_retails_text: '',
+    knasta_knastaday: 0,
+    solotodo_category_id: 4,
+    solotodo_country_id: 1,
+    solotodo_ordering: 'offer_price_usd',
+    travel_category_id: 'TiendaMonitores',
+    travel_ordering: 'relevance',
+    tuganga_mode: 'all_offers',
+    tuganga_stores_text: '',
+    tuganga_category: '',
+    tuganga_only_available: false,
+    tuganga_sort: '',
+    descuentosrata_all: true,
+    descuentosrata_limit: 10000,
+    strict_mode: false,
+    smart_filter: true,
+  })
+  const [globalResult, setGlobalResult] = useState(null)
+  const [globalStatus, setGlobalStatus] = useState('')
+  const [globalLoading, setGlobalLoading] = useState(false)
+  const [globalRunMs, setGlobalRunMs] = useState(0)
+  const [globalCategories, setGlobalCategories] = useState({
+    pulga: [],
+    knasta: [],
+    solotodo: [],
+    travel: [],
+    tuganga: [],
+  })
+  const [globalCategoriesLoading, setGlobalCategoriesLoading] = useState(false)
 
   const fetchCookieStatus = async () => {
     try {
@@ -61,12 +128,41 @@ function App() {
         const data = await res.json()
         setCookieStatus(data)
       }
-    } catch {}
+    } catch {
+      // Cookie status is optional; the rest of the UI can load without it.
+    }
   }
 
   useEffect(() => {
     fetchCookieStatus()
   }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const loadGlobalCategories = async () => {
+      setGlobalCategoriesLoading(true)
+      try {
+        const params = new URLSearchParams({
+          query: globalForm.query.trim(),
+          knasta_knastaday: String(globalForm.knasta_knastaday || 0),
+          knasta_retails: globalForm.knasta_retails_text,
+          tuganga_mode: globalForm.tuganga_mode,
+        })
+        const res = await fetch(`/api/global-categories?${params.toString()}`, { signal: controller.signal })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.detail || 'No se pudieron cargar categorias')
+        setGlobalCategories(data.categories || {})
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          setGlobalCategories((prev) => prev)
+        }
+      } finally {
+        if (!controller.signal.aborted) setGlobalCategoriesLoading(false)
+      }
+    }
+    loadGlobalCategories()
+    return () => controller.abort()
+  }, [globalForm.query, globalForm.knasta_knastaday, globalForm.knasta_retails_text, globalForm.tuganga_mode])
 
   const saveCookies = async () => {
     if (!cookieRawText.trim()) return
@@ -83,7 +179,7 @@ function App() {
         try {
           const data = await res.json()
           errorMsg = data.detail || errorMsg
-        } catch (e) {
+        } catch {
           // Ignore JSON parse error
         }
         throw new Error(errorMsg)
@@ -115,9 +211,16 @@ function App() {
     () => Boolean(form.query.trim() || form.search_url.trim() || form.category_url.trim()),
     [form.query, form.search_url, form.category_url],
   )
-  const resolvedColumns = previewColumns.length
-    ? previewColumns
-    : ['Posicion', 'Titulo', 'Precio', 'Descuento', 'Estado', 'Link']
+  const canGlobalSubmit = useMemo(
+    () => Boolean(globalForm.query.trim() || (globalForm.sources.length === 1 && globalForm.sources[0] === 'descuentosrata')),
+    [globalForm.query, globalForm.sources],
+  )
+  const resolvedColumns = useMemo(
+    () => previewColumns.length
+      ? previewColumns
+      : ['Posicion', 'Titulo', 'Precio', 'Descuento', 'Estado', 'Link'],
+    [previewColumns],
+  )
 
   const filteredPreviewRows = useMemo(() => {
     if (!previewRows.length) return []
@@ -134,6 +237,33 @@ function App() {
   const onChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
+
+  const onGlobalChange = (key, value) => {
+    setGlobalForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const toggleGlobalSource = (source) => {
+    setGlobalForm((prev) => {
+      const exists = prev.sources.includes(source)
+      const sources = exists ? prev.sources.filter((item) => item !== source) : [...prev.sources, source]
+      return { ...prev, sources }
+    })
+  }
+
+  const csvToList = (value) =>
+    String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+
+  const buildGlobalPayload = () => ({
+    ...globalForm,
+    include_words: csvToList(globalForm.include_words_text),
+    exclude_words: csvToList(globalForm.exclude_words_text),
+    knasta_retails: csvToList(globalForm.knasta_retails_text),
+    tuganga_stores: csvToList(globalForm.tuganga_stores_text),
+    tuganga_categories: globalForm.tuganga_category ? [globalForm.tuganga_category] : [],
+  })
 
   const PREDEFINED_CATEGORIES = [
     { id: 'computacion', name: 'Computación' },
@@ -228,7 +358,7 @@ function App() {
           try {
             const data = await res.json()
             errorMsg = data.detail || errorMsg
-          } catch (e) {
+          } catch {
             // Ignore JSON parse error on 500
           }
           throw new Error(errorMsg)
@@ -245,6 +375,63 @@ function App() {
         setStatus('JSON exportado correctamente.')
       } catch (err) {
         setStatus(err.message)
+      }
+    })
+  }
+
+  const runGlobalSearch = async () => {
+    if (!canGlobalSubmit) return
+    setGlobalStatus('')
+    setGlobalResult(null)
+    await runWithLiveTimer(setGlobalLoading, setGlobalRunMs, async () => {
+      try {
+        const res = await fetch('/api/global-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildGlobalPayload()),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.detail || 'Error en busqueda conjunta')
+        setGlobalResult(data)
+        setGlobalStatus(`Busqueda lista: ${data.total_count} resultados en ${data.elapsed_seconds}s`)
+      } catch (err) {
+        setGlobalStatus(err.message)
+      }
+    })
+  }
+
+  const downloadGlobalJson = async () => {
+    if (!canGlobalSubmit) return
+    setGlobalStatus('')
+    await runWithLiveTimer(setGlobalLoading, setGlobalRunMs, async () => {
+      try {
+        const res = await fetch('/api/global-export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildGlobalPayload()),
+        })
+        if (!res.ok) {
+          let message = 'Error descargando JSON conjunto'
+          try {
+            const data = await res.json()
+            message = data.detail || message
+          } catch {
+            // Ignore JSON parse error on download failures.
+          }
+          throw new Error(message)
+        }
+        const blob = await res.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `global_search_${Date.now()}.json`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        window.URL.revokeObjectURL(url)
+        setGlobalStatus(`JSON combinado descargado. Carpeta: ${res.headers.get('X-Output-Dir') || '-'}`)
+      } catch (err) {
+        setGlobalStatus(err.message)
       }
     })
   }
@@ -386,6 +573,384 @@ function App() {
         <p className="hint section-reveal fade-2">
           Configura filtros, calcula cantidad de resultados y exporta JSON sin listar productos.
         </p>
+
+        <div className="section section-reveal fade-3 global-search-box">
+          <div className="section-title">
+            <Globe size={14} /> Busqueda conjunta
+          </div>
+          <div className="grid">
+            <label>
+              Busqueda unica
+              <input value={globalForm.query} onChange={(e) => onGlobalChange('query', e.target.value)} />
+            </label>
+            <label>
+              Alcance
+              <select value={globalForm.scan_scope} onChange={(e) => onGlobalChange('scan_scope', e.target.value)}>
+                <option value="fast">Rapido</option>
+                <option value="complete">Completo</option>
+              </select>
+            </label>
+            <label>
+              Tope por fuente
+              <input
+                type="number"
+                min="1"
+                max="10000"
+                value={globalForm.max_items_per_source}
+                onChange={(e) => onGlobalChange('max_items_per_source', Number(e.target.value || 1))}
+              />
+            </label>
+            <label>
+              Precio minimo
+              <input
+                type="number"
+                value={globalForm.min_price}
+                onChange={(e) => onGlobalChange('min_price', Number(e.target.value || 0))}
+              />
+            </label>
+            <label>
+              Precio maximo
+              <input
+                type="number"
+                value={globalForm.max_price}
+                onChange={(e) => onGlobalChange('max_price', Number(e.target.value || 0))}
+              />
+            </label>
+            <label>
+              Descuento minimo
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={globalForm.min_discount}
+                onChange={(e) => onGlobalChange('min_discount', Number(e.target.value || 0))}
+              />
+            </label>
+            <label>
+              Incluir palabras
+              <input
+                placeholder="gamer, ips"
+                value={globalForm.include_words_text}
+                onChange={(e) => onGlobalChange('include_words_text', e.target.value)}
+              />
+            </label>
+            <label>
+              Excluir palabras
+              <input
+                placeholder="repuesto, carcasa"
+                value={globalForm.exclude_words_text}
+                onChange={(e) => onGlobalChange('exclude_words_text', e.target.value)}
+              />
+            </label>
+            <div className="full global-advanced-checks">
+              <label className="source-check">
+                <input
+                  type="checkbox"
+                  checked={globalForm.strict_mode}
+                  onChange={(e) => onGlobalChange('strict_mode', e.target.checked)}
+                />
+                <span title="Coincidencia de palabras completas">Modo estricto</span>
+              </label>
+              <label className="source-check">
+                <input
+                  type="checkbox"
+                  checked={globalForm.smart_filter}
+                  onChange={(e) => onGlobalChange('smart_filter', e.target.checked)}
+                />
+                <span title="Filtro automatico de accesorios">Filtro anti-basura</span>
+              </label>
+            </div>
+          </div>
+          <div className="source-grid">
+            {[
+              ['mercadolibre', 'MercadoLibre'],
+              ['facebook_marketplace', 'Facebook'],
+              ['pulga', 'Pulga'],
+              ['knasta', 'Knasta'],
+              ['solotodo', 'SoloTodo'],
+              ['travel', 'Travel'],
+              ['tuganga', 'TuGanga'],
+              ['descuentosrata', 'DescuentosRata'],
+            ].map(([key, label]) => (
+              <label className="source-check" key={key}>
+                <input
+                  type="checkbox"
+                  checked={globalForm.sources.includes(key)}
+                  onChange={() => toggleGlobalSource(key)}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+          <div className="source-accordions">
+            <details className="source-accordion">
+              <summary>MercadoLibre</summary>
+              <div className="grid">
+                <label>
+                  Pais
+                  <select value={globalForm.country} onChange={(e) => onGlobalChange('country', e.target.value)}>
+                    <option value="cl">Chile</option>
+                    <option value="ar">Argentina</option>
+                    <option value="mx">Mexico</option>
+                    <option value="co">Colombia</option>
+                    <option value="pe">Peru</option>
+                  </select>
+                </label>
+                <label>
+                  Estado
+                  <select value={globalForm.mercadolibre_condition} onChange={(e) => onGlobalChange('mercadolibre_condition', e.target.value)}>
+                    <option value="any">Cualquiera</option>
+                    <option value="new">Nuevo</option>
+                    <option value="used">Usado</option>
+                    <option value="reconditioned">Reacondicionado</option>
+                  </select>
+                </label>
+                <label>
+                  Palabra obligatoria
+                  <input value={globalForm.mercadolibre_word} onChange={(e) => onGlobalChange('mercadolibre_word', e.target.value)} />
+                </label>
+                <label className="full">
+                  URL exacta
+                  <input value={globalForm.mercadolibre_search_url} onChange={(e) => onGlobalChange('mercadolibre_search_url', e.target.value)} />
+                </label>
+              </div>
+              <div className="source-inline-checks">
+                <label className="source-check">
+                  <input type="checkbox" checked={globalForm.sort_price} onChange={(e) => onGlobalChange('sort_price', e.target.checked)} />
+                  <span>Ordenar por precio</span>
+                </label>
+                <label className="source-check">
+                  <input type="checkbox" checked={globalForm.include_international} onChange={(e) => onGlobalChange('include_international', e.target.checked)} />
+                  <span>Incluir internacionales</span>
+                </label>
+              </div>
+            </details>
+            <details className="source-accordion">
+              <summary>Facebook Marketplace</summary>
+              <div className="grid">
+                <label>
+                  Marketplace path
+                  <input value={globalForm.facebook_marketplace_path} onChange={(e) => onGlobalChange('facebook_marketplace_path', e.target.value)} />
+                </label>
+                <label>
+                  Palabra obligatoria
+                  <input value={globalForm.facebook_word} onChange={(e) => onGlobalChange('facebook_word', e.target.value)} />
+                </label>
+                <label>
+                  Ubicacion
+                  <input value={globalForm.facebook_location_query} onChange={(e) => onGlobalChange('facebook_location_query', e.target.value)} />
+                </label>
+                <label>
+                  Radio km
+                  <input type="number" value={globalForm.facebook_radius_km} onChange={(e) => onGlobalChange('facebook_radius_km', Number(e.target.value || 1))} />
+                </label>
+                <label>
+                  Latitud
+                  <input type="number" step="0.000001" value={globalForm.facebook_latitude ?? ''} onChange={(e) => onGlobalChange('facebook_latitude', Number(e.target.value || 0))} />
+                </label>
+                <label>
+                  Longitud
+                  <input type="number" step="0.000001" value={globalForm.facebook_longitude ?? ''} onChange={(e) => onGlobalChange('facebook_longitude', Number(e.target.value || 0))} />
+                </label>
+              </div>
+              <label className="source-check standalone">
+                <input type="checkbox" checked={globalForm.facebook_include_talca} onChange={(e) => onGlobalChange('facebook_include_talca', e.target.checked)} />
+                <span>Incluir Talca</span>
+              </label>
+            </details>
+            <details className="source-accordion">
+              <summary>Pulga</summary>
+              <div className="grid">
+                <label>
+                  Categoria
+                  <select value={globalForm.pulga_category} onChange={(e) => onGlobalChange('pulga_category', e.target.value)}>
+                    {(globalCategories.pulga || []).map((category) => (
+                      <option key={category.value} value={category.value}>{category.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Condicion
+                  <select value={globalForm.pulga_condition} onChange={(e) => onGlobalChange('pulga_condition', e.target.value)}>
+                    <option value="any">Cualquiera</option>
+                    <option value="new">Nuevo</option>
+                    <option value="used">Usado</option>
+                  </select>
+                </label>
+                <label>
+                  Ciudad
+                  <input value={globalForm.pulga_city} onChange={(e) => onGlobalChange('pulga_city', e.target.value)} />
+                </label>
+                <label>
+                  Palabra obligatoria
+                  <input value={globalForm.pulga_word} onChange={(e) => onGlobalChange('pulga_word', e.target.value)} />
+                </label>
+              </div>
+            </details>
+            <details className="source-accordion">
+              <summary>Knasta</summary>
+              <div className="grid">
+                <label>
+                  Categoria
+                  <select value={globalForm.knasta_category} onChange={(e) => onGlobalChange('knasta_category', e.target.value)} disabled={globalCategoriesLoading}>
+                    <option value="">{globalCategoriesLoading ? 'Cargando categorias...' : 'Todas las categorias'}</option>
+                    {(globalCategories.knasta || []).map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}{category.count != null ? ` (${Number(category.count).toLocaleString('es-CL')})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Retails
+                  <input placeholder="pcfactory, paris" value={globalForm.knasta_retails_text} onChange={(e) => onGlobalChange('knasta_retails_text', e.target.value)} />
+                </label>
+                <label>
+                  KnastaDay
+                  <input type="number" min="0" value={globalForm.knasta_knastaday} onChange={(e) => onGlobalChange('knasta_knastaday', Number(e.target.value || 0))} />
+                </label>
+              </div>
+            </details>
+            <details className="source-accordion">
+              <summary>SoloTodo</summary>
+              <div className="grid">
+                <label>
+                  Categoria ID
+                  <select value={String(globalForm.solotodo_category_id)} onChange={(e) => onGlobalChange('solotodo_category_id', Number(e.target.value || 0))} disabled={globalCategoriesLoading}>
+                    <option value="0">{globalCategoriesLoading ? 'Cargando categorias...' : 'Todas'}</option>
+                    {(globalCategories.solotodo || []).map((category) => (
+                      <option key={category.value} value={category.value}>{category.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Pais ID
+                  <input type="number" value={globalForm.solotodo_country_id} onChange={(e) => onGlobalChange('solotodo_country_id', Number(e.target.value || 1))} />
+                </label>
+                <label>
+                  Orden
+                  <input value={globalForm.solotodo_ordering} onChange={(e) => onGlobalChange('solotodo_ordering', e.target.value)} />
+                </label>
+              </div>
+            </details>
+            <details className="source-accordion">
+              <summary>Travel</summary>
+              <div className="grid">
+                <label>
+                  Categoria ID
+                  <select value={globalForm.travel_category_id} onChange={(e) => onGlobalChange('travel_category_id', e.target.value)} disabled={globalCategoriesLoading}>
+                    <option value="">{globalCategoriesLoading ? 'Cargando categorias...' : 'Todas las categorias'}</option>
+                    {(globalCategories.travel || []).map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {'  '.repeat(Math.min(category.depth || 0, 4))}{category.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Orden
+                  <select value={globalForm.travel_ordering} onChange={(e) => onGlobalChange('travel_ordering', e.target.value)}>
+                    <option value="relevance">Relevancia</option>
+                    <option value="price_asc">Precio ascendente</option>
+                    <option value="price_desc">Precio descendente</option>
+                    <option value="discount_desc">Descuento descendente</option>
+                    <option value="name_asc">Nombre ascendente</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+            <details className="source-accordion">
+              <summary>TuGanga</summary>
+              <div className="grid">
+                <label>
+                  Modo
+                  <select value={globalForm.tuganga_mode} onChange={(e) => onGlobalChange('tuganga_mode', e.target.value)}>
+                    <option value="search">Busqueda</option>
+                    <option value="offers">Ofertas</option>
+                    <option value="all_offers">Todas ofertas</option>
+                    <option value="minimums">Minimos</option>
+                    <option value="best">Mejores</option>
+                  </select>
+                </label>
+                <label>
+                  Tiendas
+                  <input placeholder="lider, ripley" value={globalForm.tuganga_stores_text} onChange={(e) => onGlobalChange('tuganga_stores_text', e.target.value)} />
+                </label>
+                <label className="full">
+                  Categoria
+                  <select
+                    value={globalForm.tuganga_category}
+                    onChange={(e) => onGlobalChange('tuganga_category', e.target.value)}
+                    disabled={globalCategoriesLoading}
+                  >
+                    <option value="">
+                      {globalCategoriesLoading ? 'Cargando categorias...' : 'Todas las categorias'}
+                    </option>
+                    {(globalCategories.tuganga || []).map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}{category.count != null ? ` (${Number(category.count).toLocaleString('es-CL')})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Orden
+                  <input value={globalForm.tuganga_sort} onChange={(e) => onGlobalChange('tuganga_sort', e.target.value)} />
+                </label>
+              </div>
+              <label className="source-check standalone">
+                <input type="checkbox" checked={globalForm.tuganga_only_available} onChange={(e) => onGlobalChange('tuganga_only_available', e.target.checked)} />
+                <span>Solo disponibles</span>
+              </label>
+            </details>
+            <details className="source-accordion">
+              <summary>DescuentosRata</summary>
+              <div className="grid">
+                <label>
+                  Limite
+                  <input type="number" min="1" max="10000" value={globalForm.descuentosrata_limit} onChange={(e) => onGlobalChange('descuentosrata_limit', Number(e.target.value || 1))} />
+                </label>
+              </div>
+              <label className="source-check standalone">
+                <input
+                  type="checkbox"
+                  checked={globalForm.descuentosrata_all}
+                  onChange={(e) => onGlobalChange('descuentosrata_all', e.target.checked)}
+                />
+                <span>Traer todas sus ofertas disponibles</span>
+              </label>
+            </details>
+          </div>
+          <div className="actions compact-actions">
+            <button className="btn warn" disabled={!canGlobalSubmit || globalLoading} onClick={runGlobalSearch}>
+              {globalLoading ? (
+                <span className="btn-content"><span className="loader" />Ejecutando... {(globalRunMs / 1000).toFixed(1)}s</span>
+              ) : (
+                <span className="btn-content"><Search size={16} />Ejecutar todas</span>
+              )}
+            </button>
+            <button className="btn outline" disabled={!canGlobalSubmit || globalLoading} onClick={downloadGlobalJson}>
+              <span className="btn-content"><FileJson size={16} />Descargar combinado</span>
+            </button>
+          </div>
+          {globalStatus && <div className="status status-pulse">{globalStatus}</div>}
+          {globalResult && (
+            <div className="global-summary">
+              <div className="global-files">
+                <strong>Combinado:</strong> {globalResult.all_results_file}
+              </div>
+              <div className="source-results">
+                {(globalResult.runs || []).map((run) => (
+                  <div className={`source-result ${run.ok ? 'ok' : 'fail'}`} key={run.source}>
+                    <span>{run.source}</span>
+                    <strong>{run.count}</strong>
+                    <small>{run.output_file || run.error}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="section section-reveal fade-3">
           <div className="section-title">
@@ -593,6 +1158,28 @@ function App() {
               <span className="switch-knob" />
             </span>
           </label>
+          <label className="switch-card highlight">
+            <span title="Busca palabras exactas en lugar de fragmentos">Coincidencia estricta</span>
+            <input
+              type="checkbox"
+              checked={form.strict_mode}
+              onChange={(e) => onChange('strict_mode', e.target.checked)}
+            />
+            <span className="switch">
+              <span className="switch-knob" />
+            </span>
+          </label>
+          <label className="switch-card highlight">
+            <span title="Elimina automaticamente accesorios si no los estas buscando">Filtro anti-basura</span>
+            <input
+              type="checkbox"
+              checked={form.smart_filter}
+              onChange={(e) => onChange('smart_filter', e.target.checked)}
+            />
+            <span className="switch">
+              <span className="switch-knob" />
+            </span>
+          </label>
         </div>
         </div>
 
@@ -719,7 +1306,7 @@ function App() {
               <ol>
                 <li>Abre <a href="https://www.mercadolibre.cl" target="_blank" rel="noreferrer">mercadolibre.cl</a> e inicia sesion</li>
                 <li>Presiona <code>F12</code> → pestaña <strong>Application</strong> → <strong>Cookies</strong></li>
-                <li>Selecciona todas las filas (<code>Ctrl+A</code>) y copia (<code>Ctrl+C</code>)</li>
+                <li>Selecciona todas las filas (<code>Ctrl+A</code>) and copia (<code>Ctrl+C</code>)</li>
                 <li>Pega aqui abajo</li>
               </ol>
             </div>

@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import mercadolibre as ml
+import global_search
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent
@@ -46,6 +47,54 @@ class SearchPayload(BaseModel):
     category_url: str = Field(default="")
     scan_scope: str = Field(default="fast")
     preview_limit: int = Field(default=200)
+    strict_mode: bool = Field(default=False)
+    smart_filter: bool = Field(default=True)
+
+
+class GlobalSearchPayload(BaseModel):
+    query: str = Field(default="")
+    sources: list[str] = Field(default_factory=lambda: global_search.DEFAULT_SOURCES.copy())
+    scan_scope: str = Field(default="fast")
+    country: str = Field(default="cl")
+    max_items_per_source: int = Field(default=10000)
+    min_price: int = Field(default=0)
+    max_price: int = Field(default=0)
+    min_discount: int = Field(default=0)
+    include_words: list[str] = Field(default_factory=list)
+    exclude_words: list[str] = Field(default_factory=list)
+    sort_price: bool = Field(default=False)
+    include_international: bool = Field(default=False)
+    mercadolibre_word: str = Field(default="")
+    mercadolibre_search_url: str = Field(default="")
+    mercadolibre_condition: str = Field(default="used")
+    facebook_word: str = Field(default="")
+    facebook_marketplace_path: str = Field(default="curico")
+    facebook_location_query: str = Field(default="Curico, Maule, Chile")
+    facebook_latitude: float | None = Field(default=-34.98749193781055)
+    facebook_longitude: float | None = Field(default=-71.24675716218236)
+    facebook_radius_km: int = Field(default=35)
+    facebook_include_talca: bool = Field(default=True)
+    pulga_category: str = Field(default="tecnologia")
+    pulga_condition: str = Field(default="any")
+    pulga_city: str = Field(default="")
+    pulga_word: str = Field(default="")
+    knasta_category: str = Field(default="20106")
+    knasta_retails: list[str] = Field(default_factory=list)
+    knasta_knastaday: int = Field(default=0)
+    solotodo_category_id: int = Field(default=4)
+    solotodo_country_id: int = Field(default=1)
+    solotodo_ordering: str = Field(default="offer_price_usd")
+    travel_category_id: str = Field(default="TiendaMonitores")
+    travel_ordering: str = Field(default="relevance")
+    tuganga_mode: str = Field(default="all_offers")
+    tuganga_stores: list[str] = Field(default_factory=list)
+    tuganga_categories: list[str] = Field(default_factory=list)
+    tuganga_only_available: bool = Field(default=False)
+    tuganga_sort: str = Field(default="")
+    descuentosrata_all: bool = Field(default=True)
+    descuentosrata_limit: int = Field(default=10000)
+    strict_mode: bool = Field(default=False)
+    smart_filter: bool = Field(default=True)
 
 
 app = FastAPI(title="MercadoLibre UI API")
@@ -293,6 +342,8 @@ def _collect_preview_items(payload: SearchPayload, limit: int) -> tuple[list[dic
         include_words=[str(w).strip() for w in payload.include_words if str(w).strip()],
         min_discount=max(0, min(100, int(payload.min_discount))),
         exclude_words=[str(w).strip() for w in payload.exclude_words if str(w).strip()],
+        strict=payload.strict_mode,
+        smart_filter=payload.smart_filter,
     )
     if condition_filter != "any":
         items = [
@@ -444,6 +495,129 @@ def categories(payload: SearchPayload) -> dict:
         return {"success": True, "categories": ml.categories_from_search_api(meta)}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Error cargando categorías: {exc}") from exc
+
+
+@app.post("/api/global-search")
+def global_search_results(payload: GlobalSearchPayload) -> dict:
+    try:
+        return global_search.run_global_search(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error ejecutando busqueda conjunta: {exc}") from exc
+
+
+@app.post("/api/global-export")
+def global_export_results(payload: GlobalSearchPayload):
+    try:
+        result = global_search.run_global_search(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error exportando busqueda conjunta: {exc}") from exc
+
+    all_path = Path(result["all_results_file"])
+    filename = f"global_{int(time.time())}_{len(result.get('items') or [])}items.json"
+    return FileResponse(
+        path=all_path,
+        media_type="application/json",
+        filename=filename,
+        headers={
+            "X-Output-Dir": result["output_dir"],
+            "X-Total-Count": str(result["total_count"]),
+        },
+    )
+
+
+@app.get("/api/global-categories")
+def global_categories(
+    query: str = "",
+    knasta_knastaday: int = 0,
+    knasta_retails: str = "",
+    tuganga_mode: str = "all_offers",
+) -> dict:
+    categories: dict[str, list[dict]] = {
+        "pulga": [
+            {"id": "", "value": "", "label": "Todas"},
+            {"id": "tecnologia", "value": "tecnologia", "label": "Tecnologia"},
+            {"id": "moda", "value": "moda", "label": "Moda"},
+            {"id": "bebes", "value": "bebes", "label": "Bebe y Ninos"},
+            {"id": "entretenimiento", "value": "entretenimiento", "label": "Entretenimiento"},
+            {"id": "coleccionismo", "value": "coleccionismo", "label": "Coleccionismo"},
+            {"id": "deporte", "value": "deporte", "label": "Deporte"},
+            {"id": "bicicletas", "value": "bicicletas", "label": "Bicicletas"},
+            {"id": "hogar", "value": "hogar", "label": "Hogar y Jardin"},
+            {"id": "electrodomesticos", "value": "electrodomesticos", "label": "Electrodomesticos"},
+        ],
+        "knasta": [],
+        "solotodo": [],
+        "travel": [],
+        "tuganga": [],
+    }
+    errors: dict[str, str] = {}
+
+    try:
+        import knasta_api
+
+        opts = knasta_api.SearchOptions(
+            query=query.strip(),
+            knastaday=max(0, int(knasta_knastaday or 0)),
+            retails=[r.strip() for r in knasta_retails.split(",") if r.strip()],
+        )
+        categories["knasta"] = [
+            {
+                "id": str(cat.get("value") or cat.get("id") or ""),
+                "value": str(cat.get("value") or cat.get("id") or ""),
+                "label": str(cat.get("label") or cat.get("name") or ""),
+                "count": cat.get("count"),
+            }
+            for cat in knasta_api.categories_for_options(opts, include_counts=True)
+        ]
+    except Exception as exc:
+        errors["knasta"] = str(exc)
+
+    try:
+        import solotodo
+
+        categories["solotodo"] = [
+            {"id": int(cat.get("id") or 0), "value": int(cat.get("id") or 0), "label": str(cat.get("name") or "")}
+            for cat in solotodo.fetch_categories()
+        ]
+    except Exception as exc:
+        errors["solotodo"] = str(exc)
+
+    try:
+        import travel
+
+        categories["travel"] = [
+            {
+                "id": str(cat.get("id") or ""),
+                "value": str(cat.get("id") or ""),
+                "label": str(cat.get("path") or cat.get("name") or ""),
+                "depth": cat.get("depth", 0),
+            }
+            for cat in travel.fetch_categories()
+        ]
+    except Exception as exc:
+        errors["travel"] = str(exc)
+
+    try:
+        import tuganga_api
+
+        tuganga_query = query.strip() if tuganga_mode == "search" else ""
+        categories["tuganga"] = [
+            {
+                "id": str(cat.get("value") or ""),
+                "value": str(cat.get("value") or ""),
+                "label": str(cat.get("label") or ""),
+                "count": cat.get("count"),
+            }
+            for cat in tuganga_api.categories_for_mode(mode=tuganga_mode, query=tuganga_query)
+        ]
+    except Exception as exc:
+        errors["tuganga"] = str(exc)
+
+    return {"success": True, "categories": categories, "errors": errors}
 
 
 class CookiePayload(BaseModel):

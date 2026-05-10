@@ -80,11 +80,17 @@ def normalize_text(value: str) -> str:
     return no_accents.lower().strip()
 
 
-def text_has_term(text: str, term: str) -> bool:
+def text_has_term(text: str, term: str, whole_word: bool = False) -> bool:
     term = term.strip()
     if not term:
         return False
-    return term in text
+    if not whole_word:
+        return term in text
+    
+    # Match as whole word using regex
+    # We use a simple \b boundary but escape the term
+    pattern = rf"\b{re.escape(term)}\b"
+    return bool(re.search(pattern, text, re.IGNORECASE))
 
 
 def extract_price_from_block(block: str) -> str | None:
@@ -1786,27 +1792,89 @@ def apply_filters(
     include_words: list[str],
     min_discount: int,
     exclude_words: list[str],
+    strict: bool = False,
+    smart_filter: bool = True,
+    query: str = "",
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    
+    STRONG_ACCESSORIES = {
+        "repuesto", "carcasa", "funda", "bolso", "estuche", "mica", "protector",
+        "cargador", "cable", "servicio", "reparacion", "arreglo", "tecnico",
+        "manual", "caja", "sticker", "calcomania", "mini", "soporte", "adaptador", 
+        "vidrio", "templado", "lamina", "desarme", "bisagra", "flex", "cooler", 
+        "ventilador", "pin", "jack", "motherboard", "correa", "mouse", "raton", 
+        "audifono", "audifonos", "auricular", "auriculares", "mochila", "maletin", 
+        "maleta", "parlante", "parlantes", "microfono", "tablet", "ipad", "consola", 
+        "nintendo", "xbox", "playstation", "ps4", "ps5", "escritorio", "torre", 
+        "gabinete", "impresora", "router", "candado", "base", "chatarra"
+    }
+    
+    WEAK_ACCESSORIES = {
+        "pantalla", "teclado", "bateria", "placa", "memoria", "ram", "ssd", "disco", "hdd", "pantallas", "teclados", "baterias", "placas", "memorias", "discos"
+    }
+
     word_lc = normalize_text(word) if word.strip() else ""
+    query_lc = normalize_text(query) if query.strip() else ""
     include_words_lc = [normalize_text(w) for w in include_words if str(w).strip()]
     exclude_words_lc = [normalize_text(w) for w in exclude_words if str(w).strip()]
+    
     for item in items:
-        title_lc = normalize_text(str(item.get("title", "")))
+        title_raw = str(item.get("title", ""))
+        title_lc = normalize_text(title_raw)
         price_val = parse_price_value(item.get("price"))
+        
         if min_price > 0 and (price_val is None or price_val < min_price):
             continue
         if max_price > 0 and (price_val is None or price_val > max_price):
             continue
-        if word_lc and not text_has_term(title_lc, word_lc):
+            
+        # 1. Base query word check
+        if word_lc and not text_has_term(title_lc, word_lc, whole_word=strict):
             continue
-        if include_words_lc and not all(text_has_term(title_lc, w) for w in include_words_lc):
+            
+        # 2. Include words check
+        if include_words_lc and not all(text_has_term(title_lc, w, whole_word=strict) for w in include_words_lc):
             continue
-        if exclude_words_lc and any(text_has_term(title_lc, w) for w in exclude_words_lc):
+            
+        # 3. Exclude words check (manual)
+        if exclude_words_lc and any(text_has_term(title_lc, w, whole_word=False) for w in exclude_words_lc):
             continue
+            
+        # 4. Smart Filter (Anti-Basura)
+        if smart_filter:
+            query_words = set(word_lc.split()) | set(" ".join(include_words_lc).split()) | set(query_lc.split())
+            title_words_list = title_lc.split()
+            title_words = set(title_words_list)
+            
+            found_strong = title_words & STRONG_ACCESSORIES
+            if found_strong and not (found_strong & query_words):
+                if "para" in found_strong or "compatible" in found_strong or " para " in title_lc or " compatible con " in title_lc:
+                    continue
+                    
+                is_bundle = any(w in title_words for w in ["+", "mas", "regalo", "incluye", "gratis", "con", "y"]) or "+" in title_lc
+                if not is_bundle:
+                    continue
+                
+                first_acc_idx = min([title_words_list.index(w) for w in found_strong if w in title_words_list], default=999)
+                first_query_idx = min([title_words_list.index(w) for w in query_words if w in title_words_list], default=999)
+                if first_acc_idx < first_query_idx:
+                    continue
+                    
+            if title_words_list:
+                first_word = title_words_list[0]
+                if first_word in WEAK_ACCESSORIES and first_word not in query_words:
+                    continue
+                
+                found_weak = title_words & WEAK_ACCESSORIES
+                if found_weak and not (found_weak & query_words):
+                    if " para " in title_lc or " compatible con " in title_lc:
+                        continue
+
         discount = item.get("discount_percent")
         if min_discount > 0 and (discount is None or int(discount) < min_discount):
             continue
+            
         out.append(item)
     return out
 
@@ -1975,6 +2043,7 @@ def run(
         include_words=include_words,
         min_discount=min_discount,
         exclude_words=exclude_words,
+        query=query,
     )
 
     if condition_filter != "any":
