@@ -20,8 +20,15 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY mercadolibre.py server.py run_dev.py README.md ./
+COPY mercadolibre.py global_search.py server.py run_dev.py README.md ./
 COPY automation ./automation
+COPY facebook_marketplace ./facebook_marketplace
+COPY pulga ./pulga
+COPY knasta_scraper ./knasta_scraper
+COPY solotodo_scraper ./solotodo_scraper
+COPY travel_scraper ./travel_scraper
+COPY tuganga_scraper ./tuganga_scraper
+COPY descuentosrata_scraper ./descuentosrata_scraper
 COPY --from=web-build /app/web/dist ./web/dist
 
 EXPOSE 10000
