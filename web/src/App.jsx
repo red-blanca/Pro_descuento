@@ -379,52 +379,96 @@ function App() {
     })
   }
 
+  const safeJson = async (res) => {
+    const text = await res.text()
+    try {
+      return JSON.parse(text)
+    } catch {
+      if (text.trimStart().startsWith('<')) {
+        throw new Error(
+          res.status === 502
+            ? 'Timeout del servidor (502). Intenta con menos fuentes o modo rapido.'
+            : `El servidor respondio con HTML en vez de JSON (status ${res.status})`
+        )
+      }
+      throw new Error(`Respuesta invalida del servidor (status ${res.status})`)
+    }
+  }
+
+  const pollGlobalJob = async (jobId) => {
+    // Poll every 2 seconds until the job finishes
+    while (true) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const res = await fetch(`/api/global-search/${jobId}`)
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(data.detail || 'Error consultando estado del job')
+      if (data.status === 'error') throw new Error(data.error || 'Error en busqueda conjunta')
+      if (data.status === 'done') return data
+      // Still running — update status and keep polling
+      setGlobalStatus(`Buscando... ${data.elapsed_seconds}s`)
+    }
+  }
+
+  const startGlobalJob = async () => {
+    const res = await fetch('/api/global-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildGlobalPayload()),
+    })
+    const data = await safeJson(res)
+    if (!res.ok) throw new Error(data.detail || 'Error iniciando busqueda conjunta')
+    return data.job_id
+  }
+
   const runGlobalSearch = async () => {
     if (!canGlobalSubmit) return
     setGlobalStatus('')
     setGlobalResult(null)
-    await runWithLiveTimer(setGlobalLoading, setGlobalRunMs, async () => {
-      try {
-        const res = await fetch('/api/global-search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildGlobalPayload()),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.detail || 'Error en busqueda conjunta')
-        setGlobalResult(data)
-        setGlobalStatus(`Busqueda lista: ${data.total_count} resultados en ${data.elapsed_seconds}s`)
-      } catch (err) {
-        setGlobalStatus(err.message)
-      }
-    })
+    setGlobalLoading(true)
+    setGlobalRunMs(0)
+    const startedAt = performance.now()
+    const tick = setInterval(() => setGlobalRunMs(performance.now() - startedAt), 120)
+    try {
+      const jobId = await startGlobalJob()
+      setGlobalStatus('Busqueda iniciada, esperando resultados...')
+      const data = await pollGlobalJob(jobId)
+      setGlobalResult(data)
+      setGlobalStatus(`Busqueda lista: ${data.total_count} resultados en ${data.elapsed_seconds}s`)
+    } catch (err) {
+      setGlobalStatus(err.message)
+    } finally {
+      clearInterval(tick)
+      setGlobalRunMs(performance.now() - startedAt)
+      setGlobalLoading(false)
+    }
   }
 
   const downloadGlobalJson = async () => {
     if (!canGlobalSubmit) return
     setGlobalStatus('')
 
-    // If we already have results loaded, download directly from memory (no backend call)
+    // If we already have results loaded, download directly from memory
     let data = globalResult
     if (!data || !data.items || !data.items.length) {
-      // No results loaded yet — run the search first
-      await runWithLiveTimer(setGlobalLoading, setGlobalRunMs, async () => {
-        try {
-          const res = await fetch('/api/global-search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(buildGlobalPayload()),
-          })
-          const json = await res.json()
-          if (!res.ok) throw new Error(json.detail || 'Error en busqueda conjunta')
-          setGlobalResult(json)
-          data = json
-          setGlobalStatus(`Busqueda lista: ${json.total_count} resultados en ${json.elapsed_seconds}s`)
-        } catch (err) {
-          setGlobalStatus(err.message)
-          return
-        }
-      })
+      // No results yet — run the search first via polling
+      setGlobalLoading(true)
+      setGlobalRunMs(0)
+      const startedAt = performance.now()
+      const tick = setInterval(() => setGlobalRunMs(performance.now() - startedAt), 120)
+      try {
+        const jobId = await startGlobalJob()
+        setGlobalStatus('Busqueda iniciada, esperando resultados...')
+        data = await pollGlobalJob(jobId)
+        setGlobalResult(data)
+        setGlobalStatus(`Busqueda lista: ${data.total_count} resultados en ${data.elapsed_seconds}s`)
+      } catch (err) {
+        setGlobalStatus(err.message)
+        return
+      } finally {
+        clearInterval(tick)
+        setGlobalRunMs(performance.now() - startedAt)
+        setGlobalLoading(false)
+      }
     }
 
     if (!data || !data.items || !data.items.length) {
@@ -432,7 +476,7 @@ function App() {
       return
     }
 
-    // Generate and download JSON from client memory — instant, no server timeout
+    // Generate and download JSON from client memory — instant, no timeout
     const jsonStr = JSON.stringify(data.items, null, 2)
     const blob = new Blob([jsonStr], { type: 'application/json' })
     const url = window.URL.createObjectURL(blob)

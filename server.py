@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -26,6 +27,10 @@ WEB_DIST = ROOT / "web" / "dist"
 COUNT_CACHE_TTL_SECONDS = 300
 _COUNT_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_LOCK = threading.Lock()
+
+# Async job store for long-running global searches
+_JOBS: dict[str, dict] = {}
+_JOBS_LOCK = threading.Lock()
 
 
 class SearchPayload(BaseModel):
@@ -497,36 +502,73 @@ def categories(payload: SearchPayload) -> dict:
         raise HTTPException(status_code=400, detail=f"Error cargando categorías: {exc}") from exc
 
 
+def _run_global_job(job_id: str, raw_config: dict) -> None:
+    """Run global search in background thread and store result in _JOBS."""
+    try:
+        result = global_search.run_global_search(raw_config)
+        with _JOBS_LOCK:
+            _JOBS[job_id]["status"] = "done"
+            _JOBS[job_id]["result"] = result
+    except Exception as exc:
+        with _JOBS_LOCK:
+            _JOBS[job_id]["status"] = "error"
+            _JOBS[job_id]["error"] = str(exc)
+    finally:
+        with _JOBS_LOCK:
+            _JOBS[job_id]["finished_at"] = time.time()
+
+
 @app.post("/api/global-search")
-def global_search_results(payload: GlobalSearchPayload) -> dict:
-    try:
-        return global_search.run_global_search(payload.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Error ejecutando busqueda conjunta: {exc}") from exc
+def global_search_start(payload: GlobalSearchPayload) -> dict:
+    raw = payload.model_dump()
+    cfg = global_search.build_config(raw)
+    if not cfg["query"] and any(s != "descuentosrata" for s in cfg["sources"]):
+        raise HTTPException(status_code=400, detail="Debes indicar una busqueda para las fuentes principales.")
+
+    job_id = uuid.uuid4().hex[:12]
+    with _JOBS_LOCK:
+        _JOBS[job_id] = {
+            "status": "running",
+            "query": cfg["query"],
+            "sources": cfg["sources"],
+            "started_at": time.time(),
+            "finished_at": None,
+            "result": None,
+            "error": None,
+        }
+    thread = threading.Thread(target=_run_global_job, args=(job_id, raw), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "status": "running"}
 
 
-@app.post("/api/global-export")
-def global_export_results(payload: GlobalSearchPayload):
-    try:
-        result = global_search.run_global_search(payload.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Error exportando busqueda conjunta: {exc}") from exc
+@app.get("/api/global-search/{job_id}")
+def global_search_poll(job_id: str) -> dict:
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
 
-    all_path = Path(result["all_results_file"])
-    filename = f"global_{int(time.time())}_{len(result.get('items') or [])}items.json"
-    return FileResponse(
-        path=all_path,
-        media_type="application/json",
-        filename=filename,
-        headers={
-            "X-Output-Dir": result["output_dir"],
-            "X-Total-Count": str(result["total_count"]),
-        },
-    )
+    elapsed = round(time.time() - job["started_at"], 1)
+
+    if job["status"] == "running":
+        return {"job_id": job_id, "status": "running", "elapsed_seconds": elapsed}
+
+    if job["status"] == "error":
+        return {"job_id": job_id, "status": "error", "error": job["error"], "elapsed_seconds": elapsed}
+
+    result = job["result"]
+    # Strip heavy fields that the frontend doesn't need from by_source
+    runs = result.get("runs") or []
+    return {
+        "job_id": job_id,
+        "status": "done",
+        "elapsed_seconds": result.get("elapsed_seconds", elapsed),
+        "total_count": result.get("total_count", 0),
+        "query": result.get("query", ""),
+        "scan_scope": result.get("scan_scope", ""),
+        "items": result.get("items", []),
+        "runs": runs,
+    }
 
 
 @app.get("/api/global-categories")
