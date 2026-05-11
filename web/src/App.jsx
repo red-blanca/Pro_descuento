@@ -403,37 +403,47 @@ function App() {
   const downloadGlobalJson = async () => {
     if (!canGlobalSubmit) return
     setGlobalStatus('')
-    await runWithLiveTimer(setGlobalLoading, setGlobalRunMs, async () => {
-      try {
-        const res = await fetch('/api/global-export', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildGlobalPayload()),
-        })
-        if (!res.ok) {
-          let message = 'Error descargando JSON conjunto'
-          try {
-            const data = await res.json()
-            message = data.detail || message
-          } catch {
-            // Ignore JSON parse error on download failures.
-          }
-          throw new Error(message)
+
+    // If we already have results loaded, download directly from memory (no backend call)
+    let data = globalResult
+    if (!data || !data.items || !data.items.length) {
+      // No results loaded yet — run the search first
+      await runWithLiveTimer(setGlobalLoading, setGlobalRunMs, async () => {
+        try {
+          const res = await fetch('/api/global-search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildGlobalPayload()),
+          })
+          const json = await res.json()
+          if (!res.ok) throw new Error(json.detail || 'Error en busqueda conjunta')
+          setGlobalResult(json)
+          data = json
+          setGlobalStatus(`Busqueda lista: ${json.total_count} resultados en ${json.elapsed_seconds}s`)
+        } catch (err) {
+          setGlobalStatus(err.message)
+          return
         }
-        const blob = await res.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `global_search_${Date.now()}.json`
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        window.URL.revokeObjectURL(url)
-        setGlobalStatus(`JSON combinado descargado. Carpeta: ${res.headers.get('X-Output-Dir') || '-'}`)
-      } catch (err) {
-        setGlobalStatus(err.message)
-      }
-    })
+      })
+    }
+
+    if (!data || !data.items || !data.items.length) {
+      setGlobalStatus('No hay resultados para descargar.')
+      return
+    }
+
+    // Generate and download JSON from client memory — instant, no server timeout
+    const jsonStr = JSON.stringify(data.items, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `global_search_${Date.now()}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+    setGlobalStatus(`JSON combinado descargado (${data.items.length} items)`)
   }
 
   const runExactCount = async () => {
