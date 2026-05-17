@@ -222,6 +222,7 @@ def _run_facebook(cfg: dict[str, Any]) -> dict[str, Any]:
         country_code="CL",
     )
     result = fb.execute_search(opts, cookies)
+    warnings = list(result.filter_breakdown.get("warnings") or [])
     return _source_payload(
         "facebook_marketplace",
         cfg["query"],
@@ -230,6 +231,7 @@ def _run_facebook(cfg: dict[str, Any]) -> dict[str, Any]:
             "total_matches": result.total_matches,
             "captured_raw": result.captured_raw,
             "filter_breakdown": result.filter_breakdown,
+            "warning": " ".join(str(w) for w in warnings if str(w).strip()),
         },
     )
 
@@ -580,6 +582,7 @@ def run_global_search(raw_config: dict[str, Any], output_base: Path | None = Non
                 "count": len(by_source[source].get("items") or []),
                 "output_file": by_source[source].get("output_file"),
                 "error": by_source[source].get("error"),
+                "warning": by_source[source].get("warning"),
             }
             for source in cfg["sources"]
             if source in by_source

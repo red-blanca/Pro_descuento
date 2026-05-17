@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import mercadolibre as ml
 import global_search
+import facebook_api as fb
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent
@@ -666,6 +667,11 @@ class CookiePayload(BaseModel):
     raw_text: str = Field(default="")
 
 
+class FacebookCookiePayload(BaseModel):
+    profile: str = Field(default="curico")
+    raw_text: str = Field(default="")
+
+
 def _parse_devtools_cookies(raw: str) -> str:
     """Parse cookie text from Chrome DevTools table copy-paste format.
     Supports multiple formats:
@@ -730,6 +736,19 @@ def _parse_devtools_cookies(raw: str) -> str:
                 _add(name, value)
 
     return "; ".join(pairs)
+
+
+def _facebook_profile_status(profile_name: str, cookies: dict[str, str]) -> dict:
+    valid, message = fb.validate_cookies(cookies)
+    return {
+        "profile": profile_name,
+        "valid": valid,
+        "message": message,
+        "cookie_count": len(cookies),
+        "cookie_names": list(cookies.keys()),
+        "has_c_user": bool(cookies.get("c_user")),
+        "has_xs": bool(cookies.get("xs")),
+    }
 
 
 @app.post("/api/cookies")
@@ -802,6 +821,48 @@ def cookies_status() -> dict:
         "file_size": stat.st_size,
         "last_modified": mtime.isoformat(),
         "age_minutes": age_minutes,
+    }
+
+
+@app.post("/api/facebook-cookies")
+def save_facebook_cookies(payload: FacebookCookiePayload) -> dict:
+    raw = payload.raw_text.strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="No se proporciono texto de cookies.")
+
+    parsed_header = _parse_devtools_cookies(raw)
+    cookies = fb.parse_cookie_string(parsed_header)
+    if not cookies:
+        raise HTTPException(status_code=400, detail="No se encontraron cookies validas en el texto proporcionado.")
+
+    valid, message = fb.validate_cookies(cookies)
+    if not valid:
+        raise HTTPException(status_code=400, detail=message)
+
+    profile = "talca" if payload.profile.strip().lower() == "talca" else "curico"
+    fb.save_cookies(cookies, profile=profile)
+    return {
+        "success": True,
+        "profile": profile,
+        "cookie_count": len(cookies),
+        "cookie_names": list(cookies.keys()),
+        "message": message,
+    }
+
+
+@app.get("/api/facebook-cookies/status")
+def facebook_cookies_status() -> dict:
+    profiles = fb.load_cookie_profiles()
+    profile_statuses = {
+        name: _facebook_profile_status(name, profiles.get(name, {}))
+        for name in fb.COOKIE_PROFILE_NAMES
+    }
+    all_valid = all(status["valid"] for status in profile_statuses.values())
+    return {
+        "exists": any(status["cookie_count"] > 0 for status in profile_statuses.values()),
+        "all_valid": all_valid,
+        "profiles": profile_statuses,
+        "message": "Perfiles listos." if all_valid else "Faltan cookies validas en uno o mas perfiles.",
     }
 
 

@@ -55,6 +55,11 @@ function App() {
   const [cookieStatus, setCookieStatus] = useState(null)
   const [cookieSaving, setCookieSaving] = useState(false)
   const [cookieMsg, setCookieMsg] = useState('')
+  const [facebookCookieStatus, setFacebookCookieStatus] = useState(null)
+  const [facebookCookieProfile, setFacebookCookieProfile] = useState('curico')
+  const [facebookCookieRawText, setFacebookCookieRawText] = useState('')
+  const [facebookCookieSaving, setFacebookCookieSaving] = useState(false)
+  const [facebookCookieMsg, setFacebookCookieMsg] = useState('')
   const [globalForm, setGlobalForm] = useState({
     query: '',
     scan_scope: 'fast',
@@ -133,8 +138,21 @@ function App() {
     }
   }
 
+  const fetchFacebookCookieStatus = async () => {
+    try {
+      const res = await fetch('/api/facebook-cookies/status')
+      if (res.ok) {
+        const data = await res.json()
+        setFacebookCookieStatus(data)
+      }
+    } catch {
+      // Facebook cookie status is optional; searches will report errors if needed.
+    }
+  }
+
   useEffect(() => {
     fetchCookieStatus()
+    fetchFacebookCookieStatus()
   }, [])
 
   useEffect(() => {
@@ -195,6 +213,40 @@ function App() {
     }
   }
 
+  const saveFacebookCookies = async () => {
+    if (!facebookCookieRawText.trim()) return
+    setFacebookCookieSaving(true)
+    setFacebookCookieMsg('')
+    try {
+      const res = await fetch('/api/facebook-cookies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile: facebookCookieProfile,
+          raw_text: facebookCookieRawText,
+        }),
+      })
+      if (!res.ok) {
+        let errorMsg = 'Error guardando cookies de Facebook'
+        try {
+          const data = await res.json()
+          errorMsg = data.detail || errorMsg
+        } catch {
+          // Ignore JSON parse error
+        }
+        throw new Error(errorMsg)
+      }
+      const data = await res.json()
+      setFacebookCookieMsg(`${data.cookie_count} cookies guardadas para ${data.profile}`)
+      setFacebookCookieRawText('')
+      await fetchFacebookCookieStatus()
+    } catch (err) {
+      setFacebookCookieMsg(err.message)
+    } finally {
+      setFacebookCookieSaving(false)
+    }
+  }
+
   const cookieHealth = useMemo(() => {
     if (!cookieStatus || !cookieStatus.exists || cookieStatus.cookie_count === 0) {
       return { color: 'red', label: 'Sin cookies', icon: 'x' }
@@ -206,6 +258,16 @@ function App() {
     }
     return { color: 'green', label: `${Math.round(age)}min - Activas`, icon: 'ok' }
   }, [cookieStatus])
+
+  const facebookCookieHealth = useMemo(() => {
+    if (!facebookCookieStatus || !facebookCookieStatus.exists) {
+      return { color: 'red', label: 'Facebook sin cookies', icon: 'x' }
+    }
+    if (!facebookCookieStatus.all_valid) {
+      return { color: 'yellow', label: 'Facebook incompleto', icon: 'warn' }
+    }
+    return { color: 'green', label: 'Facebook listo', icon: 'ok' }
+  }, [facebookCookieStatus])
 
   const canSubmit = useMemo(
     () => Boolean(form.query.trim() || form.search_url.trim() || form.category_url.trim()),
@@ -613,13 +675,24 @@ function App() {
             <button
               className={`cookie-status-btn cookie-${cookieHealth.color}`}
               type="button"
-              onClick={() => { setCookieMsg(''); setCookieModalOpen(true) }}
+              onClick={() => { setCookieMsg(''); setFacebookCookieMsg(''); setCookieModalOpen(true) }}
               title="Gestionar cookies de MercadoLibre"
             >
               {cookieHealth.icon === 'ok' && <ShieldCheck size={14} />}
               {cookieHealth.icon === 'warn' && <ShieldAlert size={14} />}
               {cookieHealth.icon === 'x' && <ShieldX size={14} />}
               <span>{cookieHealth.label}</span>
+            </button>
+            <button
+              className={`cookie-status-btn cookie-${facebookCookieHealth.color}`}
+              type="button"
+              onClick={() => { setCookieMsg(''); setFacebookCookieMsg(''); setCookieModalOpen(true) }}
+              title="Gestionar cookies de Facebook Marketplace"
+            >
+              {facebookCookieHealth.icon === 'ok' && <ShieldCheck size={14} />}
+              {facebookCookieHealth.icon === 'warn' && <ShieldAlert size={14} />}
+              {facebookCookieHealth.icon === 'x' && <ShieldX size={14} />}
+              <span>{facebookCookieHealth.label}</span>
             </button>
             <span className="badge">Diseno integrado</span>
           </div>
@@ -998,7 +1071,7 @@ function App() {
                   <div className={`source-result ${run.ok ? 'ok' : 'fail'}`} key={run.source}>
                     <span>{run.source}</span>
                     <strong>{run.count}</strong>
-                    <small>{run.output_file || run.error}</small>
+                    <small>{run.warning || run.output_file || run.error}</small>
                   </div>
                 ))}
               </div>
@@ -1374,6 +1447,63 @@ function App() {
             />
 
             {cookieMsg && <div className="cookie-feedback">{cookieMsg}</div>}
+
+            <div className="cookie-info">
+              <div className={`cookie-badge cookie-badge-${facebookCookieHealth.color}`}>
+                {facebookCookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
+                {facebookCookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
+                {facebookCookieHealth.icon === 'x' && <ShieldX size={16} />}
+                <div>
+                  <div className="cookie-badge-title">Facebook Marketplace</div>
+                  <div className="cookie-badge-sub">
+                    Curico: {facebookCookieStatus?.profiles?.curico?.valid ? 'OK' : 'pendiente'} | Talca: {facebookCookieStatus?.profiles?.talca?.valid ? 'OK' : 'pendiente'}
+                  </div>
+                  {facebookCookieStatus?.message && (
+                    <div className="cookie-badge-sub">{facebookCookieStatus.message}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="cookie-instructions">
+              <p><strong>Cookies de Facebook Marketplace:</strong></p>
+              <ol>
+                <li>Abre Marketplace con la cuenta/perfil correspondiente</li>
+                <li>Fija la ubicacion en Curico o Talca antes de copiar</li>
+                <li>Copia todas las filas desde Application Cookies facebook.com</li>
+                <li>Elige el perfil y pega el texto abajo</li>
+              </ol>
+            </div>
+
+            <label>
+              Perfil Facebook
+              <select value={facebookCookieProfile} onChange={(e) => setFacebookCookieProfile(e.target.value)}>
+                <option value="curico">Curico</option>
+                <option value="talca">Talca</option>
+              </select>
+            </label>
+
+            <textarea
+              className="cookie-textarea"
+              placeholder={'Pega cookies de Facebook aqui...\n\nFormato aceptado:\nc_user\t100...\t.facebook.com\t/\t...\nxs\t...\t.facebook.com\t/\t...'}
+              value={facebookCookieRawText}
+              onChange={(e) => setFacebookCookieRawText(e.target.value)}
+              rows={8}
+            />
+
+            {facebookCookieMsg && <div className="cookie-feedback">{facebookCookieMsg}</div>}
+
+            <div className="modal-actions">
+              <button
+                className="btn warn"
+                disabled={!facebookCookieRawText.trim() || facebookCookieSaving}
+                onClick={saveFacebookCookies}
+              >
+                <span className="btn-content">
+                  {facebookCookieSaving ? <><span className="loader" /> Guardando...</> : <><Cookie size={16} /> Guardar Facebook</>}
+                </span>
+              </button>
+            </div>
 
             <div className="modal-actions">
               <button

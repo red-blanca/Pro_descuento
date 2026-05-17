@@ -148,6 +148,29 @@ def _distance_sort_value(item: dict[str, Any]) -> float:
         return 9999.0
 
 
+def _session_location_warnings(variant_debug: list[dict[str, Any]]) -> list[str]:
+    locked = [debug for debug in variant_debug if debug.get("session_location_locked")]
+    if not locked:
+        return []
+
+    locations: list[str] = []
+    seen: set[str] = set()
+    for debug in locked:
+        requested = debug.get("requested_buy_location")
+        detected = debug.get("detected_buy_location")
+        label = f"{debug.get('variant')}: pedida={requested}, sesion={detected}"
+        if label not in seen:
+            seen.add(label)
+            locations.append(label)
+
+    detail = "; ".join(locations)
+    return [
+        "Facebook esta usando una ubicacion de sesion distinta a la solicitada. "
+        "Actualiza las cookies despues de fijar Marketplace en Curico/Talca. "
+        f"Detalle: {detail}"
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Cookie management
 # ---------------------------------------------------------------------------
@@ -769,7 +792,6 @@ def apply_location_filter(
             continue
         resolved = geocoded_locations.get(loc)
         if resolved is None:
-            out.append(item)
             continue
         iloc, ilon, _ = resolved
         dist = haversine_km(lat, lon, iloc, ilon)
@@ -1020,6 +1042,7 @@ def execute_search(opts: SearchOptions, cookies: dict[str, str] | dict[str, dict
 
     total = len(final)
     items = final[: opts.limit]
+    warnings = _session_location_warnings(variant_debug)
 
     for idx, item in enumerate(items, start=1):
         item["position"] = idx
@@ -1045,6 +1068,7 @@ def execute_search(opts: SearchOptions, cookies: dict[str, str] | dict[str, dict
             "include_talca": opts.include_talca,
             "fetch_radius_km": _search_fetch_radius_km(opts),
             "variants": sorted(variant_debug, key=lambda item: item["variant"]),
+            "warnings": warnings,
         },
     )
 
