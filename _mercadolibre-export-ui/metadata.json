@@ -1,0 +1,6 @@
+{
+  "name": "MercadoLibre Export UI",
+  "description": "A high-performance data utility tool for configuring filters and exporting JSON data from various marketplace sources with a futuristic HUD interface.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
