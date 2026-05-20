@@ -1,0 +1,113 @@
+import { motion } from 'motion/react'
+import { CheckCircle2, Database, Download, Terminal as TerminalIcon, X } from 'lucide-react'
+import { soundService } from './soundService'
+
+export default function GlobalSearchResultsModal({ globalResult, sessionId, onClose, onDownload }) {
+  const runs = globalResult?.runs || []
+  const totalFound = globalResult?.total_count ?? runs.reduce((sum, run) => sum + Number(run.count || 0), 0)
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        className="w-full max-w-4xl border-4 border-matrix-green bg-black shadow-[0_0_100px_rgba(51,255,102,0.3)] overflow-hidden flex flex-col max-h-[80vh]"
+        initial={{ scale: 0.8, rotateX: 20 }}
+        animate={{ scale: 1, rotateX: 0 }}
+        exit={{ scale: 0.8, rotateX: 20 }}
+        transition={{ type: 'spring', damping: 20 }}
+      >
+        <div className="bg-matrix-green text-black px-4 py-2 flex items-center justify-between font-black uppercase tracking-[0.2em] shrink-0">
+          <div className="flex items-center gap-3">
+            <TerminalIcon size={20} strokeWidth={3} />
+            <span className="text-sm">REPORT_TERMINAL_OUT // SCAN_COMPLETE</span>
+          </div>
+          <button
+            onClick={() => {
+              soundService.playClick()
+              onClose()
+            }}
+            className="hover:bg-black hover:text-matrix-green p-1 transition-all"
+          >
+            <X size={24} strokeWidth={3} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 md:p-8 font-mono space-y-8">
+          <div className="flex flex-col md:flex-row md:items-end justify-between border-b-2 border-matrix-green/30 pb-6 gap-4">
+            <div>
+              <h2 className="text-3xl md:text-4xl font-black text-matrix-green glow-matrix uppercase italic tracking-tighter mb-2">RESULTADOS_ENCONTRADOS</h2>
+              <div className="flex gap-4 text-[10px] font-black uppercase text-matrix-green/40">
+                <span>SESION_ID: {sessionId || 'LIVE_SCAN'}</span>
+                <span>|</span>
+                <span>STATUS: OPERATIVO</span>
+              </div>
+            </div>
+            <div className="flex flex-col md:items-end">
+              <span className="text-5xl font-black text-matrix-green tabular-nums">{totalFound}</span>
+              <span className="text-[10px] font-black uppercase text-matrix-green/60 tracking-[0.3em]">TOTAL_ITEMS_DETECTADOS</span>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-matrix-green border-collapse">
+              <thead>
+                <tr className="border-b border-matrix-green/20 text-[10px] font-black uppercase tracking-widest bg-matrix-green/5">
+                  <th className="p-4">RECURSO_ORIGEN</th>
+                  <th className="p-4 text-right">ITEMS</th>
+                  <th className="p-4 text-right">ESTADO</th>
+                  <th className="p-4">DETALLE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr key={run.source} className="border-b border-matrix-green/10 hover:bg-matrix-green/5 transition-all text-sm group">
+                    <td className="p-4 flex items-center gap-3">
+                      <div className="w-8 h-8 border border-matrix-green/30 flex items-center justify-center bg-black">
+                        <Database size={14} className="opacity-50" />
+                      </div>
+                      <span className="font-black uppercase tracking-tighter">{run.source}</span>
+                    </td>
+                    <td className="p-4 text-right text-xl font-black">{run.count ?? 0}</td>
+                    <td className="p-4 text-right">
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 border text-[9px] font-black uppercase ${run.ok ? 'border-matrix-green bg-matrix-green/10 text-matrix-green' : 'border-red-500 bg-red-950/20 text-red-400'}`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                        {run.ok ? 'SYNCED' : 'ERROR'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-[10px] text-matrix-green/50 max-w-[260px] truncate">{run.warning || run.error || run.output_file || 'OK'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="p-6 bg-matrix-green/5 border border-matrix-green/20 space-y-4">
+            <p className="text-[10px] text-matrix-green/40 uppercase leading-relaxed">
+              El motor de busqueda ha finalizado la indexacion de los nodos seleccionados. El paquete completo de datos esta listo para ser extraido.
+            </p>
+            <div className="flex items-center gap-2 text-matrix-green">
+              <CheckCircle2 size={14} />
+              <span className="text-[10px] font-black uppercase tracking-widest">VERIFICACION_DE_INTEGRIDAD: PASADA</span>
+            </div>
+          </div>
+        </div>
+        <div className="p-5 md:p-8 border-t-2 border-matrix-green/20 shrink-0 flex flex-col sm:flex-row justify-end gap-4 bg-black/50">
+          <button onClick={onClose} className="px-8 py-3 border-2 border-matrix-green/40 text-matrix-green/60 font-black uppercase tracking-widest hover:border-matrix-green hover:text-matrix-green transition-all">
+            Regresar_Al_Radar
+          </button>
+          <button
+            onClick={() => {
+              soundService.playClick()
+              onDownload()
+            }}
+            className="px-10 py-3 bg-matrix-green text-black font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_30px_rgba(51,255,102,0.4)] flex items-center justify-center gap-3 scale-105"
+          >
+            <Download size={20} strokeWidth={3} />
+            EXPORTAR_JSON_GLOBAL
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
