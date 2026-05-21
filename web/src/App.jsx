@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { motion } from 'motion/react'
-import { Cookie, ShieldCheck, ShieldAlert, ShieldX } from 'lucide-react'
+import { motion as Motion } from 'motion/react'
+import { Cookie, ShieldCheck, ShieldAlert, ShieldX, X } from 'lucide-react'
 import './App.css'
 import GlobalSearchView from './global-search/GlobalSearchView.jsx'
 
@@ -391,106 +391,107 @@ function App() {
       />
 
       {cookieModalOpen && (
-        <motion.div className="modal-overlay" onClick={() => setCookieModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <motion.div className="modal-header">
-              <h2><Cookie size={20} /> Gestionar Cookies</h2>
-              <button type="button" className="modal-close" onClick={() => setCookieModalOpen(false)}>×</button>
-            </motion.div>
+        <Motion.div className="gs-matrix-root fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm font-mono text-matrix-green" onClick={() => setCookieModalOpen(false)}>
+          <div className="w-full max-w-2xl border-4 border-matrix-green bg-black shadow-[0_0_50px_rgba(51,255,102,0.2)] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <Motion.div className="bg-matrix-green text-black px-4 py-2 flex items-center justify-between font-black uppercase tracking-widest">
+              <h2 className="flex items-center gap-3 text-sm font-black uppercase"><Cookie size={18} strokeWidth={3} /> GESTION_COOKIES_PROTOCOL</h2>
+              <button type="button" className="hover:bg-black hover:text-matrix-green p-1 transition-all" onClick={() => setCookieModalOpen(false)}><X size={20} strokeWidth={3} /></button>
+            </Motion.div>
 
-            <motion.div className="cookie-info">
+            <div className="p-8 max-h-[82vh] overflow-y-auto space-y-6">
               {cookieStatus && cookieStatus.exists ? (
-                <motion.div className={`cookie-badge cookie-badge-${cookieHealth.color}`}>
+                <div className={`flex items-start gap-3 p-3 border-2 bg-black text-[10px] uppercase ${cookieHealth.color === 'green' ? 'border-matrix-green text-matrix-green' : cookieHealth.color === 'yellow' ? 'border-yellow-300 text-yellow-300' : 'border-[#ff3333] text-[#ff3333]'}`}>
                   {cookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
                   {cookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
                   {cookieHealth.icon === 'x' && <ShieldX size={16} />}
-                  <motion.div>
-                    <motion.div className="cookie-badge-title">{cookieStatus.cookie_count} cookies guardadas</motion.div>
-                    <motion.div className="cookie-badge-sub">
+                  <div>
+                    <div className="font-black tracking-widest">{cookieStatus.cookie_count} cookies guardadas</div>
+                    <div className="opacity-70">
                       Ultima actualizacion: {cookieStatus.age_minutes != null ? `hace ${Math.round(cookieStatus.age_minutes)} min` : 'desconocida'}
-                    </motion.div>
-                  </motion.div>
-                </motion.div>
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <motion.div className="cookie-badge cookie-badge-red">
+                <div className="flex items-start gap-3 p-3 border-2 border-[#ff3333] bg-black text-[#ff3333] text-[10px] uppercase">
                   <ShieldX size={16} />
-                  <motion.div>
-                    <motion.div className="cookie-badge-title">No hay cookies guardadas</motion.div>
-                    <motion.div className="cookie-badge-sub">Pega las cookies de MercadoLibre abajo</motion.div>
-                  </motion.div>
-                </motion.div>
+                  <div>
+                    <div className="font-black tracking-widest">No hay cookies guardadas</div>
+                    <div className="opacity-70">Pega las cookies de MercadoLibre abajo</div>
+                  </div>
+                </div>
               )}
-            </motion.div>
+            </div>
 
-            <motion.div className="cookie-instructions">
-              <p><strong>Como obtener cookies:</strong></p>
-              <ol>
-                <li>Abre <a href="https://www.mercadolibre.cl" target="_blank" rel="noreferrer">mercadolibre.cl</a> e inicia sesion</li>
-                <li>Presiona F12 → Application → Cookies</li>
+            <Motion.div className="mx-8 mb-6 border-2 border-matrix-green/30 bg-matrix-green/5 p-4 text-[10px] uppercase leading-relaxed text-matrix-green/60">
+              <p className="mb-2 font-black text-matrix-green"><strong>Como obtener cookies:</strong></p>
+              <ol className="list-decimal pl-5 space-y-1">
+                <li>Abre <a className="text-matrix-green underline" href="https://www.mercadolibre.cl" target="_blank" rel="noreferrer">mercadolibre.cl</a> e inicia sesion</li>
+                <li>Presiona F12 - Application - Cookies</li>
                 <li>Selecciona todas las filas (Ctrl+A) y copia (Ctrl+C)</li>
                 <li>Pega aqui abajo</li>
               </ol>
-            </motion.div>
+            </Motion.div>
 
             <textarea
-              className="cookie-textarea"
+              className="mx-8 mb-6 block w-[calc(100%-4rem)] min-h-[140px] bg-black border-2 border-matrix-green p-3 text-xs font-black text-matrix-green outline-none resize-y focus:bg-matrix-green/10"
               placeholder="Pega las cookies de MercadoLibre aqui..."
               value={cookieRawText}
               onChange={(e) => setCookieRawText(e.target.value)}
               rows={10}
             />
 
-            {cookieMsg && <motion.div className="cookie-feedback">{cookieMsg}</motion.div>}
+            {cookieMsg && <Motion.div className="mx-8 mb-6 border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green">{cookieMsg}</Motion.div>}
 
-            <motion.div className="cookie-info">
-              <motion.div className={`cookie-badge cookie-badge-${facebookCookieHealth.color}`}>
+            <Motion.div className="mx-8 mb-6">
+              <Motion.div className={`flex items-start gap-3 p-3 border-2 bg-black text-[10px] uppercase ${facebookCookieHealth.color === 'green' ? 'border-matrix-green text-matrix-green' : facebookCookieHealth.color === 'yellow' ? 'border-yellow-300 text-yellow-300' : 'border-[#ff3333] text-[#ff3333]'}`}>
                 {facebookCookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
                 {facebookCookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
                 {facebookCookieHealth.icon === 'x' && <ShieldX size={16} />}
-                <motion.div>
-                  <motion.div className="cookie-badge-title">Facebook Marketplace</motion.div>
-                  <motion.div className="cookie-badge-sub">
+                <div>
+                  <div className="font-black tracking-widest">Facebook Marketplace</div>
+                  <div className="opacity-70">
                     Curico: {facebookCookieStatus?.profiles?.curico?.valid ? 'OK' : 'pendiente'} | Talca:{' '}
                     {facebookCookieStatus?.profiles?.talca?.valid ? 'OK' : 'pendiente'}
-                  </motion.div>
-                </motion.div>
-              </motion.div>
-            </motion.div>
+                  </div>
+                </div>
+              </Motion.div>
+            </Motion.div>
 
-            <label>
-              Perfil Facebook
-              <select value={facebookCookieProfile} onChange={(e) => setFacebookCookieProfile(e.target.value)}>
+            <label className="mx-8 mb-6 block space-y-1">
+              <span className="block text-[10px] font-black text-matrix-green/40 uppercase tracking-widest">Perfil Facebook</span>
+              <select className="w-full bg-black border-2 border-matrix-green p-2 text-xs font-black text-matrix-green outline-none uppercase" value={facebookCookieProfile} onChange={(e) => setFacebookCookieProfile(e.target.value)}>
                 <option value="curico">Curico</option>
                 <option value="talca">Talca</option>
               </select>
             </label>
 
             <textarea
-              className="cookie-textarea"
+              className="mx-8 mb-6 block w-[calc(100%-4rem)] min-h-[140px] bg-black border-2 border-matrix-green p-3 text-xs font-black text-matrix-green outline-none resize-y focus:bg-matrix-green/10"
               placeholder="Pega cookies de Facebook aqui..."
               value={facebookCookieRawText}
               onChange={(e) => setFacebookCookieRawText(e.target.value)}
               rows={8}
             />
 
-            {facebookCookieMsg && <motion.div className="cookie-feedback">{facebookCookieMsg}</motion.div>}
+            {facebookCookieMsg && <Motion.div className="mx-8 mb-6 border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green">{facebookCookieMsg}</Motion.div>}
 
-            <motion.div className="modal-actions">
-              <button type="button" className="btn warn" disabled={!facebookCookieRawText.trim() || facebookCookieSaving} onClick={saveFacebookCookies}>
+            <Motion.div className="mx-8 mb-8 mt-12 flex justify-end gap-4">
+              <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!facebookCookieRawText.trim() || facebookCookieSaving} onClick={saveFacebookCookies}>
                 {facebookCookieSaving ? 'Guardando...' : 'Guardar Facebook'}
               </button>
-              <button type="button" className="btn warn" disabled={!cookieRawText.trim() || cookieSaving} onClick={saveCookies}>
+              <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!cookieRawText.trim() || cookieSaving} onClick={saveCookies}>
                 {cookieSaving ? 'Guardando...' : 'Guardar MercadoLibre'}
               </button>
-              <button type="button" className="btn ghost" onClick={() => setCookieModalOpen(false)}>
+              <button type="button" className="px-6 py-2 border-2 border-matrix-green/30 text-matrix-green/50 font-black uppercase text-xs hover:border-matrix-green hover:text-matrix-green transition-all" onClick={() => setCookieModalOpen(false)}>
                 Cerrar
               </button>
-            </motion.div>
+            </Motion.div>
           </div>
-        </motion.div>
+        </Motion.div>
       )}
     </>
   )
 }
 
 export default App
+

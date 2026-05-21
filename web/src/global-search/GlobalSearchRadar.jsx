@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence, motion as Motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { soundService } from './soundService'
 
@@ -28,14 +28,14 @@ export default function GlobalSearchRadar() {
         <div className="absolute inset-[25%] border border-matrix-green/20 rounded-full" />
         <div className="absolute inset-[50%] border border-matrix-green/20 rounded-full" />
         <div className="absolute inset-[75%] border border-matrix-green/20 rounded-full" />
-        <motion.div
+        <Motion.div
           className="absolute inset-[-50%] origin-center bg-[conic-gradient(from_0deg,_transparent_0deg,_rgba(51,255,102,0.3)_90deg,_transparent_90deg)]"
           animate={{ rotate: 360 }}
           transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
         />
         <AnimatePresence>
           {dots.map((dot) => (
-            <motion.div
+            <Motion.div
               key={dot.id}
               initial={{ opacity: 0, scale: 0 }}
               animate={{ opacity: [0, 1, 0], scale: [0.5, 1.2, 0.5] }}
@@ -45,7 +45,7 @@ export default function GlobalSearchRadar() {
               style={{ left: `${dot.x}%`, top: `${dot.y}%` }}
             >
               <div className="absolute -inset-2 border border-matrix-green/30 rounded-full animate-ping" />
-            </motion.div>
+            </Motion.div>
           ))}
         </AnimatePresence>
         <div className="absolute top-4 left-0 right-0 text-center">
@@ -60,3 +60,4 @@ export default function GlobalSearchRadar() {
     </div>
   )
 }
+

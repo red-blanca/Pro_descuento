@@ -1,4 +1,4 @@
-import { motion } from 'motion/react'
+import { motion as Motion } from 'motion/react'
 import { Save, Terminal as TerminalIcon, X } from 'lucide-react'
 import GlobalSearchNodeIcon from './GlobalSearchNodeIcon'
 import { soundService } from './soundService'
@@ -22,14 +22,11 @@ function SelectInput(props) {
 
 function Check({ label, checked, onChange }) {
   return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className="flex items-center gap-2 border-2 border-matrix-green p-2 cursor-pointer text-[10px] font-black uppercase text-matrix-green select-none hover:bg-matrix-green/5 transition-all"
-    >
+    <label className="flex items-center gap-2 border-2 border-matrix-green p-2 cursor-pointer text-[10px] font-black uppercase text-matrix-green select-none hover:bg-matrix-green/5 transition-all">
+      <input type="checkbox" className="hidden" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       <span className="w-4 h-4 border-2 border-matrix-green flex items-center justify-center">{checked && <span className="w-2 h-2 bg-matrix-green" />}</span>
       {label}
-    </button>
+    </label>
   )
 }
 
@@ -38,29 +35,29 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
   const optionLabel = (category) => `${category.label}${category.count != null ? ` (${Number(category.count).toLocaleString('es-CL')})` : ''}`
 
   return (
-    <motion.div
+    <Motion.div
       className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
-      <motion.div
-        className="w-full max-w-2xl border-4 border-matrix-green bg-black shadow-[0_0_50px_rgba(51,255,102,0.2)] overflow-hidden max-h-[88vh] flex flex-col"
+      <Motion.div
+        className="w-full max-w-2xl border-4 border-matrix-green bg-black shadow-[0_0_50px_rgba(51,255,102,0.2)] overflow-hidden"
         initial={{ scale: 0.9, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.9, y: 20 }}
         transition={{ type: 'spring', damping: 20 }}
       >
-        <div className="bg-matrix-green text-black px-4 py-2 flex items-center justify-between font-black uppercase tracking-widest shrink-0">
+        <div className="bg-matrix-green text-black px-4 py-2 flex items-center justify-between font-black uppercase tracking-widest">
           <div className="flex items-center gap-3 min-w-0">
             <TerminalIcon size={18} strokeWidth={3} />
             <span className="truncate">CONFIGURACION_PROTOCOL_{node.id}</span>
           </div>
-          <button onClick={onClose} className="hover:bg-black hover:text-matrix-green p-1 transition-all">
+          <button onClick={() => { soundService.playClick(); onClose() }} className="hover:bg-black hover:text-matrix-green p-1 transition-all">
             <X size={20} strokeWidth={3} />
           </button>
         </div>
-        <div className="p-5 md:p-8 overflow-y-auto">
+        <div className="p-8">
           <div className="flex items-center gap-4 mb-8 border-b-2 border-matrix-green/20 pb-4">
             <div className="p-3 bg-matrix-green/10 border-2 border-matrix-green">
               <GlobalSearchNodeIcon name={node.icon} size={32} strokeWidth={2.5} />
@@ -83,12 +80,17 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
                     <option value="any">Cualquiera</option><option value="new">Nuevo</option><option value="used">Usado</option><option value="reconditioned">Reacondicionado</option>
                   </SelectInput>
                 </Field>
-                <Field label="Palabra obligatoria"><TextInput value={globalForm.mercadolibre_word} onChange={(e) => onGlobalChange('mercadolibre_word', e.target.value)} /></Field>
-                <Field label="URL exacta" wide><TextInput value={globalForm.mercadolibre_search_url} onChange={(e) => onGlobalChange('mercadolibre_search_url', e.target.value)} /></Field>
+                <Field label="Palabra obligatoria" wide><TextInput value={globalForm.mercadolibre_word} onChange={(e) => onGlobalChange('mercadolibre_word', e.target.value)} /></Field>
                 <div className="flex flex-wrap gap-4 md:col-span-2 py-4">
                   <Check label="ORDENAR_POR_PRECIO" checked={globalForm.sort_price} onChange={(value) => onGlobalChange('sort_price', value)} />
                   <Check label="INCLUIR_INTL" checked={globalForm.include_international} onChange={(value) => onGlobalChange('include_international', value)} />
                 </div>
+                <details className="md:col-span-2 border-2 border-matrix-green p-3 text-matrix-green">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest">FILTROS_API_REALES</summary>
+                  <div className="mt-4 grid grid-cols-1 gap-6">
+                    <Field label="URL exacta" wide><TextInput value={globalForm.mercadolibre_search_url} onChange={(e) => onGlobalChange('mercadolibre_search_url', e.target.value)} /></Field>
+                  </div>
+                </details>
               </>
             )}
             {node.id === 'facebook' && (
@@ -114,8 +116,13 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
                     <option value="any">Cualquiera</option><option value="new">Nuevo</option><option value="used">Usado</option>
                   </SelectInput>
                 </Field>
-                <Field label="Ciudad"><TextInput value={globalForm.pulga_city} onChange={(e) => onGlobalChange('pulga_city', e.target.value)} /></Field>
-                <Field label="Palabra obligatoria"><TextInput value={globalForm.pulga_word} onChange={(e) => onGlobalChange('pulga_word', e.target.value)} /></Field>
+                <Field label="Ciudad" wide><TextInput value={globalForm.pulga_city} onChange={(e) => onGlobalChange('pulga_city', e.target.value)} /></Field>
+                <details className="md:col-span-2 border-2 border-matrix-green p-3 text-matrix-green">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest">FILTROS_API_REALES</summary>
+                  <div className="mt-4 grid grid-cols-1 gap-6">
+                    <Field label="Palabra obligatoria" wide><TextInput value={globalForm.pulga_word} onChange={(e) => onGlobalChange('pulga_word', e.target.value)} /></Field>
+                  </div>
+                </details>
               </>
             )}
             {node.id === 'knasta' && (
@@ -126,8 +133,13 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
                     {(categories.knasta || []).map((category) => <option key={category.value} value={category.value}>{optionLabel(category)}</option>)}
                   </SelectInput>
                 </Field>
-                <Field label="Retails"><TextInput placeholder="pcfactory, paris" value={globalForm.knasta_retails_text} onChange={(e) => onGlobalChange('knasta_retails_text', e.target.value)} /></Field>
-                <Field label="KnastaDay"><TextInput type="number" min="0" value={globalForm.knasta_knastaday} onChange={(e) => onGlobalChange('knasta_knastaday', Number(e.target.value || 0))} /></Field>
+                <Field label="Retails (ej: paris, lider)" wide><TextInput placeholder="pcfactory, paris" value={globalForm.knasta_retails_text} onChange={(e) => onGlobalChange('knasta_retails_text', e.target.value)} /></Field>
+                <details className="md:col-span-2 border-2 border-matrix-green p-3 text-matrix-green">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest">FILTROS_API_REALES</summary>
+                  <div className="mt-4 grid grid-cols-1 gap-6">
+                    <Field label="KnastaDay" wide><TextInput type="number" min="0" value={globalForm.knasta_knastaday} onChange={(e) => onGlobalChange('knasta_knastaday', Number(e.target.value || 0))} /></Field>
+                  </div>
+                </details>
               </>
             )}
             {node.id === 'solotodo' && (
@@ -196,7 +208,8 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
             </button>
           </div>
         </div>
-      </motion.div>
-    </motion.div>
+      </Motion.div>
+    </Motion.div>
   )
 }
+

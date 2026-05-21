@@ -34,8 +34,10 @@
 
   .gs-matrix-root input,
   .gs-matrix-root select,
-  .gs-matrix-root button {
+  .gs-matrix-root button,
+  .gs-matrix-root textarea {
     font-family: "Fira Code", ui-monospace, monospace;
+    border-radius: 0;
   }
 }
 
@@ -156,4 +158,36 @@
 
 .gs-matrix-root ::-webkit-scrollbar-thumb:hover {
   background: #00ff41;
+}
+
+/* Fuera de @layer: prioridad sobre App.css y reglas globales sin capa */
+.gs-matrix-root input,
+.gs-matrix-root select,
+.gs-matrix-root button,
+.gs-matrix-root textarea {
+  border-radius: 0;
+  font-family: "Fira Code", ui-monospace, monospace;
+}
+
+.gs-matrix-root input:focus,
+.gs-matrix-root select:focus,
+.gs-matrix-root textarea:focus {
+  outline: none;
+  transform: none;
+}
+
+.gs-matrix-root input:hover,
+.gs-matrix-root select:hover {
+  transform: none;
+}
+
+.gs-matrix-root .gs-hud-query-input::placeholder {
+  color: rgba(51, 255, 102, 0.38);
+  opacity: 1;
+}
+
+.gs-matrix-root .gs-hud-query-input:not(:placeholder-shown) {
+  text-shadow:
+    0 0 5px var(--color-matrix-green),
+    0 0 10px var(--color-matrix-green);
 }

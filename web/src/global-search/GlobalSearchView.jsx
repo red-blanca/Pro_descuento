@@ -1,12 +1,11 @@
 import './matrix-theme.css'
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence, motion as Motion } from 'motion/react'
 import { ChevronLeft, Database, Download } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import GlobalSearchHUD from './GlobalSearchHUD'
 import GlobalSearchMatrix from './GlobalSearchMatrix'
 import GlobalSearchNavbar from './GlobalSearchNavbar'
 import GlobalSearchResultsModal from './GlobalSearchResultsModal'
-import GlobalSearchTerminal from './GlobalSearchTerminal'
 import { GLOBAL_NODES } from './globalSearchNodes'
 import { soundService } from './soundService'
 
@@ -21,10 +20,8 @@ export default function GlobalSearchView({
   globalResult,
   globalStatus,
   globalLoading,
-  globalRunMs,
   canGlobalSubmit,
   onRun,
-  onAbort,
   onDownload,
   cookieHealth,
   facebookCookieHealth,
@@ -43,9 +40,6 @@ export default function GlobalSearchView({
       return []
     }
   })
-
-  const elapsedSeconds = Math.floor((globalRunMs || 0) / 1000)
-  const terminalProgress = globalLoading ? Math.min(95, (elapsedSeconds / 120) * 100) : globalResult ? 100 : 0
 
   useEffect(() => {
     soundService.setEnabled(isSoundEnabled)
@@ -70,14 +64,16 @@ export default function GlobalSearchView({
         runs: globalResult.runs || [],
         result: globalResult,
       }
-      setHistory((prev) => {
-        if (prev[0]?.id === entry.id) return prev
-        return [entry, ...prev].slice(0, 10)
+      queueMicrotask(() => {
+        setHistory((prev) => {
+          if (prev[0]?.id === entry.id) return prev
+          return [entry, ...prev].slice(0, 10)
+        })
+        setModalResult(globalResult)
+        setModalSessionId(entry.id)
+        setShowResultsModal(true)
+        soundService.playOpen()
       })
-      setModalResult(globalResult)
-      setModalSessionId(entry.id)
-      setShowResultsModal(true)
-      soundService.playOpen()
     }
   }, [globalLoading, globalResult, globalForm.strict_mode, globalForm.smart_filter])
 
@@ -86,11 +82,6 @@ export default function GlobalSearchView({
     setShowResultsModal(false)
     setModalResult(null)
     onRun()
-  }
-
-  const handleAbort = () => {
-    soundService.playError()
-    onAbort()
   }
 
   const handleClearHistory = () => {
@@ -131,8 +122,8 @@ export default function GlobalSearchView({
   }
 
   return (
-    <div className="gs-matrix-root fixed inset-0 z-0 flex h-[100dvh] w-full flex-col bg-[#020502]">
-      <motion.div className="crt-screen relative flex h-full w-full flex-1 flex-col overflow-hidden">
+    <div className="gs-matrix-root min-h-screen bg-[#020502] flex items-center justify-center">
+      <div className="crt-screen w-full h-screen flex flex-col relative overflow-hidden">
           <div className="scanline-anim" />
           <div className="screen-container flex-1 flex flex-col relative z-20">
             <GlobalSearchNavbar cookieHealth={cookieHealth} facebookCookieHealth={facebookCookieHealth} onOpenCookieModal={onOpenCookieModal} />
@@ -165,7 +156,7 @@ export default function GlobalSearchView({
                           </div>
                           <div className="flex gap-2 text-[8px] font-bold text-matrix-green/30 uppercase leading-none">
                             <span>{entry.strictMode ? 'ESTRICTO' : 'NORMAL'}</span>
-                            <span>|</span>
+                            <span>•</span>
                             <span>{entry.antiNoise ? 'ANTI-RUIDO' : 'SIN FILTRO'}</span>
                           </div>
                           <div className="flex gap-1.5 mt-1 pt-1.5 border-t border-matrix-green/10">
@@ -181,10 +172,10 @@ export default function GlobalSearchView({
                   </>
                 )}
               </div>
-              <motion.div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto">
                 <AnimatePresence mode="wait">
                   {viewMode === 'HUD' ? (
-                    <motion.div key="hud" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                    <Motion.div key="hud" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
                       <GlobalSearchHUD
                         nodes={GLOBAL_NODES}
                         globalForm={globalForm}
@@ -195,13 +186,14 @@ export default function GlobalSearchView({
                         onStartProcess={handleRun}
                         onConfigClick={() => { soundService.playOpen(); setViewMode('MATRIX') }}
                         isProcessing={globalLoading}
+                        canGlobalSubmit={canGlobalSubmit}
                         isSoundEnabled={isSoundEnabled}
                         setIsSoundEnabled={setIsSoundEnabled}
                         globalResult={globalResult}
                       />
-                    </motion.div>
+                    </Motion.div>
                   ) : (
-                    <motion.div key="matrix" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="relative p-4 md:p-6">
+                    <Motion.div key="matrix" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="relative p-4 md:p-6">
                       <div className="max-w-[1400px] mx-auto mb-6 flex items-center justify-between bg-matrix-green px-4 py-1 text-black font-bold">
                         <button type="button" onClick={() => { soundService.playClick(); setViewMode('HUD') }} className="flex items-center gap-2 text-xs font-mono tracking-widest uppercase hover:opacity-80 transition-all font-black">
                           <ChevronLeft size={16} strokeWidth={3} />
@@ -219,12 +211,11 @@ export default function GlobalSearchView({
                         canGlobalSubmit={canGlobalSubmit}
                         globalLoading={globalLoading}
                       />
-                    </motion.div>
+                    </Motion.div>
                   )}
                 </AnimatePresence>
-              </motion.div>
+              </div>
             </main>
-            {globalLoading && <GlobalSearchTerminal progress={terminalProgress} elapsedSeconds={elapsedSeconds} onStop={handleAbort} />}
             <AnimatePresence>
               {showResultsModal && modalResult && (
                 <GlobalSearchResultsModal
@@ -236,8 +227,9 @@ export default function GlobalSearchView({
               )}
             </AnimatePresence>
           </div>
-          <motion.div className="pointer-events-none absolute inset-0 z-[110] bg-[radial-gradient(circle_at_center,_rgba(51,255,102,0.05)_0%,_transparent_70%)]" />
-      </motion.div>
+          <div className="pointer-events-none absolute inset-0 z-[110] bg-[radial-gradient(circle_at_center,_rgba(51,255,102,0.05)_0%,_transparent_70%)]" />
+      </div>
     </div>
   )
 }
+

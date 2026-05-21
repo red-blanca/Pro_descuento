@@ -138,7 +138,7 @@ h1 {
   gap: 14px;
 }
 
-label {
+.page label {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -146,31 +146,31 @@ label {
   font-size: 14px;
 }
 
-input,
-select,
-button {
+.page input,
+.page select,
+.page button {
   border: 1px solid rgba(132, 179, 213, 0.45);
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
 }
 
-input,
-select {
+.page input,
+.page select {
   background: rgba(7, 21, 36, 0.82);
   color: #f1f8ff;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
-input:focus,
-select:focus {
+.page input:focus,
+.page select:focus {
   outline: none;
   border-color: #47cffb;
   box-shadow: 0 0 0 3px rgba(71, 207, 251, 0.2);
 }
 
-input:hover,
-select:hover {
+.page input:hover,
+.page select:hover {
   transform: translateY(-1px);
 }
 
