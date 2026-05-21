@@ -1,6 +1,7 @@
 import { AnimatePresence, motion as Motion } from 'motion/react'
-import { Search, Settings, Settings2, Volume2, VolumeX } from 'lucide-react'
+import { CheckSquare, Search, Settings, Settings2, Square, Volume2, VolumeX } from 'lucide-react'
 import { useState } from 'react'
+import GlobalSearchCategoryControls from './GlobalSearchCategoryControls'
 import GlobalSearchFilterModal from './GlobalSearchFilterModal'
 import GlobalSearchNodeIcon from './GlobalSearchNodeIcon'
 import GlobalSearchRadar from './GlobalSearchRadar'
@@ -14,21 +15,32 @@ export default function GlobalSearchHUD({
   toggleGlobalSource,
   globalCategories,
   globalCategoriesLoading,
+  categorySuggestion,
+  onResetAllCategories,
+  onReapplyCategorySuggestions,
   onStartProcess,
   onConfigClick,
   isProcessing,
   canGlobalSubmit,
+  elapsedSeconds,
   isSoundEnabled,
   setIsSoundEnabled,
   globalResult,
 }) {
   const [selectedNodeForConfig, setSelectedNodeForConfig] = useState(null)
   const runs = globalResult?.runs || []
+  const activeCount = nodes.filter((node) => isNodeActive(node, globalForm.sources)).length
+  const allSelected = nodes.length > 0 && activeCount === nodes.length
+
+  const handleToggleAllStores = () => {
+    soundService.playClick()
+    onGlobalChange('sources', allSelected ? [] : nodes.map((node) => node.sourceKey))
+  }
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-[calc(100vh-200px)] pt-12 pb-20">
       <AnimatePresence>
-        {selectedNodeForConfig && (
+        {selectedNodeForConfig && isNodeActive(selectedNodeForConfig, globalForm.sources) && (
           <GlobalSearchFilterModal
             node={selectedNodeForConfig}
             globalForm={globalForm}
@@ -57,13 +69,16 @@ export default function GlobalSearchHUD({
               }}
             >
               <button
+                type="button"
+                disabled={!active}
                 onClick={(event) => {
                   event.stopPropagation()
+                  if (!active) return
                   soundService.playOpen()
                   setSelectedNodeForConfig(node)
                 }}
-                className={`absolute -top-3 -right-3 z-20 w-7 h-7 font-black text-[8px] border-2 transition-all flex items-center justify-center ${active ? 'bg-matrix-green text-black border-black cursor-pointer hover:scale-110 active:scale-95 shadow-[0_0_10px_rgba(51,255,102,0.5)]' : 'bg-black text-matrix-green border-matrix-green/50 cursor-pointer hover:bg-matrix-green hover:text-black hover:border-black'}`}
-                title={`Configurar ${node.name}`}
+                className={`absolute -top-3 -right-3 z-20 w-7 h-7 font-black text-[8px] border-2 transition-all flex items-center justify-center ${active ? 'bg-matrix-green text-black border-black cursor-pointer hover:scale-110 active:scale-95 shadow-[0_0_10px_rgba(51,255,102,0.5)]' : 'bg-black text-matrix-green/20 border-matrix-green/20 cursor-not-allowed opacity-40'}`}
+                title={active ? `Configurar ${node.name}` : `Activa ${node.name} para configurar`}
               >
                 <Settings size={14} strokeWidth={3} />
               </button>
@@ -100,7 +115,7 @@ export default function GlobalSearchHUD({
               exit={{ scale: 0.5, opacity: 0, rotate: 45 }}
               transition={{ duration: 0.6, type: 'spring' }}
             >
-              <GlobalSearchRadar />
+              <GlobalSearchRadar elapsedSeconds={elapsedSeconds} />
             </Motion.div>
           ) : (
             <Motion.div
@@ -112,7 +127,7 @@ export default function GlobalSearchHUD({
               transition={{ duration: 0.5, type: 'spring', damping: 15 }}
             >
               <div className="shrink-0 h-6 bg-matrix-green text-black text-[9px] font-black flex items-center px-2 tracking-widest">RADAR COMERCIAL</div>
-              <div className="flex flex-1 flex-col items-center text-center px-6 pt-4 pb-6 gap-4 min-h-0">
+              <div className="flex flex-1 flex-col items-center text-center px-6 pt-3 pb-5 gap-3 min-h-0">
                 <Motion.div
                   className="relative shrink-0 cursor-pointer group/search"
                   onClick={() => !isProcessing && canGlobalSubmit && onStartProcess()}
@@ -120,7 +135,7 @@ export default function GlobalSearchHUD({
                   whileTap={{ scale: 0.95, rotate: -8 }}
                 >
                   <div className="absolute inset-0 bg-matrix-green/20 blur-xl scale-125 opacity-0 group-hover/search:opacity-100 transition-opacity pointer-events-none" />
-                  <Search className="text-matrix-green glow-matrix relative z-10 p-4 border-4 border-matrix-green/40 bg-black hover:border-matrix-green transition-colors" size={72} strokeWidth={2.5} />
+                  <Search className="text-matrix-green glow-matrix relative z-10 p-3 border-4 border-matrix-green/40 bg-black hover:border-matrix-green transition-colors" size={64} strokeWidth={2.5} />
                   <Motion.div
                     className="absolute -inset-2 border-2 border-matrix-green opacity-20 pointer-events-none"
                     animate={{ scale: [1, 1.12, 1], opacity: [0.2, 0.35, 0.2] }}
@@ -128,27 +143,42 @@ export default function GlobalSearchHUD({
                   />
                 </Motion.div>
 
-                <input
-                  type="text"
-                  value={globalForm.query}
-                  onChange={(event) => onGlobalChange('query', event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && canGlobalSubmit && !isProcessing) {
-                      soundService.playScan()
-                      onStartProcess()
-                    }
-                  }}
-                  placeholder="Busqueda unica (ej: notebook)"
-                  disabled={isProcessing}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="gs-hud-query-input w-full h-12 shrink-0 bg-black border-2 border-matrix-green px-4 text-center text-lg font-black italic uppercase tracking-tighter text-matrix-green outline-none disabled:opacity-70"
-                />
+                <div className="w-full relative flex flex-col justify-center gap-1.5">
+                  <input
+                    id="hud-search-input"
+                    type="text"
+                    value={globalForm.query}
+                    onChange={(event) => onGlobalChange('query', event.target.value)}
+                    placeholder="DIGITAR TERMINO..."
+                    disabled={isProcessing}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && canGlobalSubmit && !isProcessing) {
+                        soundService.playClick()
+                        onStartProcess()
+                      }
+                    }}
+                    className="w-full bg-black border-2 border-matrix-green py-2.5 px-4 text-base font-mono font-bold text-matrix-green outline-none text-center placeholder-matrix-green/30 uppercase focus:border-matrix-green focus:bg-matrix-green/10 transition-all glow-matrix tracking-widest shadow-[inset_0_0_15px_rgba(51,255,102,0.15)] focus:shadow-[0_0_20px_rgba(51,255,102,0.25)] disabled:opacity-70"
+                  />
+                  <span className="text-[8.5px] font-mono text-matrix-green/45 uppercase text-center tracking-wider block">
+                    Presione ENTER para comenzar escaneo
+                  </span>
+                  <GlobalSearchCategoryControls
+                    globalForm={globalForm}
+                    onGlobalChange={onGlobalChange}
+                    categorySuggestion={categorySuggestion}
+                    globalCategoriesLoading={globalCategoriesLoading}
+                    onResetAllCategories={onResetAllCategories}
+                    onReapplyCategorySuggestions={onReapplyCategorySuggestions}
+                    compact
+                  />
+                </div>
 
                 <button
                   type="button"
                   onClick={onConfigClick}
-                  className="mt-auto w-full py-2 bg-matrix-green text-black font-black text-xs uppercase hover:bg-white transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)] flex items-center justify-center gap-2"
+                  className="shrink-0 w-full py-2 bg-matrix-green text-black font-black text-xs uppercase hover:bg-white transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)] flex items-center justify-center gap-2"
                 >
                   <Settings2 size={14} strokeWidth={3} />
                   MODIFICAR_FILTROS
@@ -157,6 +187,19 @@ export default function GlobalSearchHUD({
             </Motion.div>
           )}
         </AnimatePresence>
+      </div>
+      <div className="absolute top-10 left-10 z-50">
+        <button
+          type="button"
+          disabled={isProcessing}
+          onClick={handleToggleAllStores}
+          title={allSelected ? 'Deseleccionar todas las tiendas' : 'Seleccionar todas las tiendas'}
+          className={`flex items-center gap-2 px-3 py-1.5 border-2 transition-all font-black text-[10px] uppercase disabled:opacity-50 disabled:cursor-not-allowed ${allSelected ? 'bg-matrix-green text-black border-matrix-green shadow-[0_0_15px_rgba(51,255,102,0.3)]' : 'bg-black text-matrix-green/60 border-matrix-green/30 hover:border-matrix-green hover:text-matrix-green'}`}
+        >
+          {allSelected ? <CheckSquare size={14} strokeWidth={3} /> : <Square size={14} strokeWidth={3} />}
+          {allSelected ? 'DESELECCIONAR_TODAS' : 'SELECCIONAR_TODAS'}
+          <span className="text-[8px] opacity-70">({activeCount}/{nodes.length})</span>
+        </button>
       </div>
       <div className="absolute top-10 right-10 z-50">
         <button onClick={() => { soundService.playClick(); setIsSoundEnabled(!isSoundEnabled) }} className={`flex items-center gap-2 px-3 py-1.5 border-2 transition-all font-black text-[10px] uppercase ${isSoundEnabled ? 'bg-matrix-green text-black border-matrix-green shadow-[0_0_15px_rgba(51,255,102,0.3)]' : 'bg-black text-matrix-green/40 border-matrix-green/20 hover:border-matrix-green hover:text-matrix-green'}`}>
@@ -167,4 +210,3 @@ export default function GlobalSearchHUD({
     </div>
   )
 }
-

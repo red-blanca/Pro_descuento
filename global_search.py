@@ -311,9 +311,10 @@ def _run_knasta(cfg: dict[str, Any]) -> dict[str, Any]:
 def _run_solotodo(cfg: dict[str, Any]) -> dict[str, Any]:
     import solotodo
 
+    category_id = cfg["solotodo_category_id"]
     items, meta = solotodo.collect_browse_results(
         query=cfg["query"],
-        category_id=cfg["solotodo_category_id"] or None,
+        category_id=category_id if category_id else None,
         country_id=cfg["solotodo_country_id"],
         ordering=cfg["solotodo_ordering"],
         limit=_limit_for(cfg["scan_scope"], cfg["max_items_per_source"], 80),
@@ -467,13 +468,38 @@ def _run_source_timed(source: str, cfg: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _raw_int(raw: dict[str, Any], key: str, default: int) -> int:
+    """Respect 0 as a valid value (Todas las categorias en SoloTodo)."""
+    if key not in raw:
+        return default
+    try:
+        return int(raw.get(key))
+    except (TypeError, ValueError):
+        return default
+
+
+def _raw_category_str(raw: dict[str, Any], key: str, default: str) -> str:
+    """Respect '' as Todas las categorias (no reemplazar por default)."""
+    if key not in raw:
+        return default
+    return str(raw.get(key) if raw.get(key) is not None else "").strip()
+
+
 def build_config(raw: dict[str, Any]) -> dict[str, Any]:
     scope = str(raw.get("scan_scope") or "fast").strip()
     if scope not in {"fast", "complete"}:
         scope = "fast"
     sources = [str(s).strip() for s in raw.get("sources", DEFAULT_SOURCES) if str(s).strip() in RUNNERS]
+    query = str(raw.get("query") or "").strip()
+    pulga_category = _raw_category_str(raw, "pulga_category", "tecnologia")
+    knasta_category = _raw_category_str(raw, "knasta_category", "")
+    solotodo_category_id = _raw_int(raw, "solotodo_category_id", 0)
+    travel_category_id = _raw_category_str(raw, "travel_category_id", "")
+    tuganga_mode = str(raw.get("tuganga_mode") or "all_offers").strip() or "all_offers"
+    if query and tuganga_mode != "search":
+        tuganga_mode = "search"
     return {
-        "query": str(raw.get("query") or "").strip(),
+        "query": query,
         "sources": sources or DEFAULT_SOURCES,
         "scan_scope": scope,
         "country": str(raw.get("country") or "cl").strip() or "cl",
@@ -497,19 +523,19 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
         "facebook_longitude": raw.get("facebook_longitude", -71.24675716218236),
         "facebook_radius_km": max(1, int(raw.get("facebook_radius_km") or 35)),
         "facebook_include_talca": bool(raw.get("facebook_include_talca", True)),
-        "pulga_category": str(raw.get("pulga_category") or "tecnologia").strip(),
+        "pulga_category": pulga_category or "",
         "pulga_condition": str(raw.get("pulga_condition") or "any").strip() or "any",
         "pulga_city": str(raw.get("pulga_city") or "").strip(),
         "pulga_word": str(raw.get("pulga_word") or "").strip(),
-        "knasta_category": str(raw.get("knasta_category") or "20106").strip(),
+        "knasta_category": knasta_category,
         "knasta_retails": [str(r).strip() for r in raw.get("knasta_retails", []) if str(r).strip()],
         "knasta_knastaday": max(0, int(raw.get("knasta_knastaday") or 0)),
-        "solotodo_category_id": int(raw.get("solotodo_category_id") or 4),
+        "solotodo_category_id": solotodo_category_id,
         "solotodo_country_id": int(raw.get("solotodo_country_id") or 1),
         "solotodo_ordering": str(raw.get("solotodo_ordering") or "offer_price_usd").strip() or "offer_price_usd",
-        "travel_category_id": str(raw.get("travel_category_id") or "TiendaMonitores").strip(),
+        "travel_category_id": travel_category_id,
         "travel_ordering": str(raw.get("travel_ordering") or "relevance").strip() or "relevance",
-        "tuganga_mode": str(raw.get("tuganga_mode") or "all_offers").strip() or "all_offers",
+        "tuganga_mode": tuganga_mode,
         "tuganga_stores": [str(s).strip() for s in raw.get("tuganga_stores", []) if str(s).strip()],
         "tuganga_categories": [str(c).strip() for c in raw.get("tuganga_categories", []) if str(c).strip()],
         "tuganga_only_available": bool(raw.get("tuganga_only_available", False)),

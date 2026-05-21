@@ -17,9 +17,13 @@ export default function GlobalSearchView({
   toggleGlobalSource,
   globalCategories,
   globalCategoriesLoading,
+  categorySuggestion,
+  onResetAllCategories,
+  onReapplyCategorySuggestions,
   globalResult,
   globalStatus,
   globalLoading,
+  globalRunMs,
   canGlobalSubmit,
   onRun,
   onDownload,
@@ -40,6 +44,7 @@ export default function GlobalSearchView({
       return []
     }
   })
+  const elapsedSeconds = Math.floor((globalRunMs || 0) / 1000)
 
   useEffect(() => {
     soundService.setEnabled(isSoundEnabled)
@@ -153,6 +158,7 @@ export default function GlobalSearchView({
                           <div className="grid grid-cols-2 gap-1 text-[9px] tracking-tight">
                             <div><span className="text-matrix-green/40">TIENDAS:</span> <span className="font-black text-matrix-green">{entry.selectedNodesCount}</span></div>
                             <div><span className="text-matrix-green/40">TOTAL:</span> <span className="font-black text-matrix-green">{entry.totalItems}</span></div>
+                            <div className="col-span-2"><span className="text-matrix-green/40">SEGUNDOS:</span> <span className="font-black text-matrix-green tabular-nums">{entry.elapsed_seconds ?? 0}s</span></div>
                           </div>
                           <div className="flex gap-2 text-[8px] font-bold text-matrix-green/30 uppercase leading-none">
                             <span>{entry.strictMode ? 'ESTRICTO' : 'NORMAL'}</span>
@@ -183,10 +189,14 @@ export default function GlobalSearchView({
                         toggleGlobalSource={toggleGlobalSource}
                         globalCategories={globalCategories}
                         globalCategoriesLoading={globalCategoriesLoading}
+                        categorySuggestion={categorySuggestion}
+                        onResetAllCategories={onResetAllCategories}
+                        onReapplyCategorySuggestions={onReapplyCategorySuggestions}
                         onStartProcess={handleRun}
                         onConfigClick={() => { soundService.playOpen(); setViewMode('MATRIX') }}
                         isProcessing={globalLoading}
                         canGlobalSubmit={canGlobalSubmit}
+                        elapsedSeconds={elapsedSeconds}
                         isSoundEnabled={isSoundEnabled}
                         setIsSoundEnabled={setIsSoundEnabled}
                         globalResult={globalResult}
@@ -206,6 +216,10 @@ export default function GlobalSearchView({
                         globalForm={globalForm}
                         onGlobalChange={onGlobalChange}
                         toggleGlobalSource={toggleGlobalSource}
+                        categorySuggestion={categorySuggestion}
+                        onResetAllCategories={onResetAllCategories}
+                        onReapplyCategorySuggestions={onReapplyCategorySuggestions}
+                        globalCategoriesLoading={globalCategoriesLoading}
                         onStartProcess={handleRun}
                         globalResult={globalResult}
                         canGlobalSubmit={canGlobalSubmit}

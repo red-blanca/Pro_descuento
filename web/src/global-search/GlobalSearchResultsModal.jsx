@@ -1,11 +1,13 @@
 import { motion as Motion } from 'motion/react'
-import { CheckCircle2, Database, Download, Terminal as TerminalIcon, X } from 'lucide-react'
+import { CheckCircle2, Download, Terminal as TerminalIcon, X } from 'lucide-react'
 import { GLOBAL_NODES } from './globalSearchNodes'
+import GlobalSearchNodeIcon from './GlobalSearchNodeIcon'
 import { soundService } from './soundService'
 
 export default function GlobalSearchResultsModal({ globalResult, sessionId, onClose, onDownload }) {
   const runs = globalResult?.runs || []
   const totalFound = globalResult?.total_count ?? runs.reduce((sum, run) => sum + Number(run.count || 0), 0)
+  const elapsedSeconds = globalResult?.elapsed_seconds
   const nodeBySource = new Map(GLOBAL_NODES.map((node) => [node.sourceKey, node]))
 
   return (
@@ -52,6 +54,12 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
               <span className="text-[10px] font-black uppercase text-matrix-green/60 tracking-[0.3em]">TOTAL_ITEMS_DETECTADOS</span>
             </div>
           </div>
+          {elapsedSeconds != null && (
+            <div className="border-4 border-matrix-green bg-black px-6 py-4 text-center shadow-[0_0_30px_rgba(51,255,102,0.18)]">
+              <div className="text-[9px] font-black uppercase tracking-[0.35em] text-matrix-green/55">TIEMPO_TOTAL_DE_BUSQUEDA</div>
+              <div className="text-5xl font-black tabular-nums text-matrix-green glow-matrix leading-none">{elapsedSeconds}s</div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-matrix-green border-collapse">
               <thead>
@@ -68,8 +76,8 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
                   return (
                   <tr key={run.source} title={run.warning || run.error || run.output_file || ''} className="border-b border-matrix-green/10 hover:bg-matrix-green/5 transition-all text-sm group">
                     <td className="p-4 flex items-center gap-3">
-                      <div className="w-8 h-8 border border-matrix-green/30 flex items-center justify-center bg-black">
-                        <Database size={14} className="opacity-50" />
+                      <div className="w-8 h-8 border border-matrix-green/30 flex items-center justify-center bg-black text-matrix-green">
+                        <GlobalSearchNodeIcon name={node?.icon} size={14} strokeWidth={2.5} />
                       </div>
                       <span className="font-black uppercase tracking-tighter">{node?.name || run.source}</span>
                     </td>
@@ -116,4 +124,3 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
     </Motion.div>
   )
 }
-

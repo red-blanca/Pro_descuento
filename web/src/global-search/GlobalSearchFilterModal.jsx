@@ -108,7 +108,8 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
               <>
                 <Field label="Categoria">
                   <SelectInput value={globalForm.pulga_category} onChange={(e) => onGlobalChange('pulga_category', e.target.value)}>
-                    {(categories.pulga || []).map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+                    <option value="">Todas las categorias</option>
+                    {(categories.pulga || []).filter((c) => c.value).map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
                   </SelectInput>
                 </Field>
                 <Field label="Condicion">

@@ -2,7 +2,7 @@ import { AnimatePresence, motion as Motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { soundService } from './soundService'
 
-export default function GlobalSearchRadar() {
+export default function GlobalSearchRadar({ elapsedSeconds = 0 }) {
   const [dots, setDots] = useState([])
 
   useEffect(() => {
@@ -50,6 +50,12 @@ export default function GlobalSearchRadar() {
         </AnimatePresence>
         <div className="absolute top-4 left-0 right-0 text-center">
           <span className="text-[10px] font-black text-matrix-green animate-pulse uppercase tracking-[0.2em]">RADAR_SCAN_ACTIVE</span>
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="bg-black/85 border-4 border-matrix-green px-5 py-3 text-center shadow-[0_0_30px_rgba(51,255,102,0.35)]">
+            <div className="text-[8px] font-black uppercase tracking-[0.35em] text-matrix-green/55">TIEMPO_TRANSCURRIDO</div>
+            <div className="text-5xl font-black tabular-nums text-matrix-green glow-matrix leading-none">{elapsedSeconds}s</div>
+          </div>
         </div>
         <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4 text-[8px] font-black text-matrix-green/40">
           <span>LAT: 43.123</span>

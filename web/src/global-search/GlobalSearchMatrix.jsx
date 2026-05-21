@@ -1,10 +1,12 @@
+import { CheckSquare, Square } from 'lucide-react'
+import GlobalSearchCategoryControls from './GlobalSearchCategoryControls'
 import GlobalSearchNodeIcon from './GlobalSearchNodeIcon'
 import { getRunForNode, isNodeActive } from './globalSearchNodes'
 import { soundService } from './soundService'
 
-function Field({ label, children }) {
+function Field({ label, children, wide = false }) {
   return (
-    <label className="space-y-1">
+    <label className={`space-y-1 ${wide ? 'md:col-span-2' : ''}`}>
       <span className="block text-[10px] font-black text-matrix-green/40 uppercase tracking-widest">{label}</span>
       {children}
     </label>
@@ -15,13 +17,41 @@ function MatrixInput(props) {
   return <input {...props} className="w-full bg-black border-2 border-matrix-green p-2 text-sm font-black text-matrix-green outline-none focus:bg-matrix-green/10" />
 }
 
-export default function GlobalSearchMatrix({ nodes, globalForm, onGlobalChange, toggleGlobalSource, globalResult }) {
+export default function GlobalSearchMatrix({
+  nodes,
+  globalForm,
+  onGlobalChange,
+  toggleGlobalSource,
+  globalResult,
+  categorySuggestion,
+  globalCategoriesLoading,
+  onResetAllCategories,
+  onReapplyCategorySuggestions,
+}) {
   const runs = globalResult?.runs || []
+  const activeCount = nodes.filter((node) => isNodeActive(node, globalForm.sources)).length
+  const allSelected = nodes.length > 0 && activeCount === nodes.length
+
+  const handleToggleAllStores = () => {
+    soundService.playClick()
+    onGlobalChange('sources', allSelected ? [] : nodes.map((node) => node.sourceKey))
+  }
 
   return (
     <div className="flex flex-col gap-8 w-full pb-20">
       <section className="border-2 border-matrix-green bg-black">
-        <div className="bg-matrix-green/20 text-matrix-green px-2 py-0.5 text-[9px] font-black uppercase tracking-widest border-b-2 border-matrix-green">TARGET_NODE_SELECTION</div>
+        <div className="bg-matrix-green/20 text-matrix-green px-2 py-0.5 text-[9px] font-black uppercase tracking-widest border-b-2 border-matrix-green flex items-center justify-between gap-2">
+          <span>TARGET_NODE_SELECTION</span>
+          <button
+            type="button"
+            onClick={handleToggleAllStores}
+            className={`flex items-center gap-1.5 px-2 py-0.5 border text-[8px] font-black uppercase transition-all ${allSelected ? 'bg-matrix-green text-black border-black' : 'bg-black text-matrix-green border-matrix-green/40 hover:border-matrix-green'}`}
+          >
+            {allSelected ? <CheckSquare size={10} strokeWidth={3} /> : <Square size={10} strokeWidth={3} />}
+            {allSelected ? 'DESELECCIONAR_TODAS' : 'SELECCIONAR_TODAS'}
+            <span className="opacity-70">({activeCount}/{nodes.length})</span>
+          </button>
+        </div>
         <div className="p-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
           {nodes.map((node) => {
             const active = isNodeActive(node, globalForm.sources)
@@ -54,8 +84,17 @@ export default function GlobalSearchMatrix({ nodes, globalForm, onGlobalChange, 
             <h3 className="text-[10px] font-black uppercase tracking-[0.3em]">GLOBAL_PARAMETERS</h3>
           </div>
           <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Field label="Búsqueda única">
+            <Field label="Búsqueda única" wide>
               <MatrixInput value={globalForm.query} onChange={(e) => onGlobalChange('query', e.target.value)} />
+              <GlobalSearchCategoryControls
+                globalForm={globalForm}
+                onGlobalChange={onGlobalChange}
+                categorySuggestion={categorySuggestion}
+                globalCategoriesLoading={globalCategoriesLoading}
+                onResetAllCategories={onResetAllCategories}
+                onReapplyCategorySuggestions={onReapplyCategorySuggestions}
+                compact
+              />
             </Field>
             <Field label="Alcance">
               <select value={globalForm.scan_scope} onChange={(e) => onGlobalChange('scan_scope', e.target.value)} className="w-full bg-black border-2 border-matrix-green p-2 text-sm font-black text-matrix-green outline-none italic uppercase">

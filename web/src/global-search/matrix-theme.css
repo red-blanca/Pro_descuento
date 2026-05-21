@@ -181,12 +181,12 @@
   transform: none;
 }
 
-.gs-matrix-root .gs-hud-query-input::placeholder {
-  color: rgba(51, 255, 102, 0.38);
+.gs-matrix-root #hud-search-input::placeholder {
+  color: rgba(51, 255, 102, 0.3);
   opacity: 1;
 }
 
-.gs-matrix-root .gs-hud-query-input:not(:placeholder-shown) {
+.gs-matrix-root #hud-search-input:not(:placeholder-shown) {
   text-shadow:
     0 0 5px var(--color-matrix-green),
     0 0 10px var(--color-matrix-green);

@@ -87,12 +87,12 @@ class GlobalSearchPayload(BaseModel):
     knasta_category: str = Field(default="20106")
     knasta_retails: list[str] = Field(default_factory=list)
     knasta_knastaday: int = Field(default=0)
-    solotodo_category_id: int = Field(default=4)
+    solotodo_category_id: int = Field(default=0)
     solotodo_country_id: int = Field(default=1)
     solotodo_ordering: str = Field(default="offer_price_usd")
-    travel_category_id: str = Field(default="TiendaMonitores")
+    travel_category_id: str = Field(default="")
     travel_ordering: str = Field(default="relevance")
-    tuganga_mode: str = Field(default="all_offers")
+    tuganga_mode: str = Field(default="search")
     tuganga_stores: list[str] = Field(default_factory=list)
     tuganga_categories: list[str] = Field(default_factory=list)
     tuganga_only_available: bool = Field(default=False)
@@ -647,7 +647,7 @@ def global_categories(
     try:
         import tuganga_api
 
-        tuganga_query = query.strip() if tuganga_mode == "search" else ""
+        tuganga_query = query.strip()
         categories["tuganga"] = [
             {
                 "id": str(cat.get("value") or ""),
@@ -660,7 +660,15 @@ def global_categories(
     except Exception as exc:
         errors["tuganga"] = str(exc)
 
-    return {"success": True, "categories": categories, "errors": errors}
+    suggested = {}
+    try:
+        from category_suggest import build_suggestions
+
+        suggested = build_suggestions(query, categories)
+    except Exception as exc:
+        errors["suggest"] = str(exc)
+
+    return {"success": True, "categories": categories, "suggested": suggested, "errors": errors}
 
 
 class CookiePayload(BaseModel):

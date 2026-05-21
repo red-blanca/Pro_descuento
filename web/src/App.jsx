@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion as Motion } from 'motion/react'
 import { Cookie, ShieldCheck, ShieldAlert, ShieldX, X } from 'lucide-react'
 import './App.css'
@@ -42,15 +42,15 @@ function App() {
     pulga_condition: 'any',
     pulga_city: '',
     pulga_word: '',
-    knasta_category: '20106',
+    knasta_category: '',
     knasta_retails_text: '',
     knasta_knastaday: 0,
-    solotodo_category_id: 4,
+    solotodo_category_id: 0,
     solotodo_country_id: 1,
     solotodo_ordering: 'offer_price_usd',
-    travel_category_id: 'TiendaMonitores',
+    travel_category_id: '',
     travel_ordering: 'relevance',
-    tuganga_mode: 'all_offers',
+    tuganga_mode: 'search',
     tuganga_stores_text: '',
     tuganga_category: '',
     tuganga_only_available: false,
@@ -59,6 +59,7 @@ function App() {
     descuentosrata_limit: 10000,
     strict_mode: false,
     smart_filter: true,
+    auto_categories: true,
   })
   const [globalResult, setGlobalResult] = useState(null)
   const [globalStatus, setGlobalStatus] = useState('')
@@ -72,6 +73,8 @@ function App() {
     tuganga: [],
   })
   const [globalCategoriesLoading, setGlobalCategoriesLoading] = useState(false)
+  const [categorySuggestion, setCategorySuggestion] = useState(null)
+  const lastAppliedQueryRef = useRef('')
   const [cookieModalOpen, setCookieModalOpen] = useState(false)
   const [cookieRawText, setCookieRawText] = useState('')
   const [cookieStatus, setCookieStatus] = useState(null)
@@ -106,30 +109,102 @@ function App() {
     fetchFacebookCookieStatus()
   }, [])
 
+  const applySuggestedCategories = useCallback((suggested, query) => {
+    if (!suggested || !query.trim()) return
+    setGlobalForm((prev) => {
+      const next = { ...prev }
+      if (suggested.pulga_category !== undefined) next.pulga_category = suggested.pulga_category || ''
+      if (suggested.knasta_category !== undefined) next.knasta_category = suggested.knasta_category || ''
+      if (suggested.solotodo_category_id !== undefined) next.solotodo_category_id = Number(suggested.solotodo_category_id || 0)
+      if (suggested.travel_category_id !== undefined) next.travel_category_id = suggested.travel_category_id || ''
+      if (suggested.tuganga_category !== undefined) next.tuganga_category = suggested.tuganga_category || ''
+      if (suggested.tuganga_mode && query.trim()) next.tuganga_mode = suggested.tuganga_mode
+      return next
+    })
+    lastAppliedQueryRef.current = query.trim()
+  }, [])
+
+  const reapplyCategorySuggestions = useCallback(() => {
+    if (!categorySuggestion || !globalForm.query.trim()) return
+    lastAppliedQueryRef.current = ''
+    applySuggestedCategories(categorySuggestion, globalForm.query)
+  }, [applySuggestedCategories, categorySuggestion, globalForm.query])
+
+  const resetAllCategories = useCallback(() => {
+    setGlobalForm((prev) => ({
+      ...prev,
+      pulga_category: '',
+      knasta_category: '',
+      solotodo_category_id: 0,
+      travel_category_id: '',
+      tuganga_category: '',
+      tuganga_mode: prev.query.trim() ? 'search' : prev.tuganga_mode,
+    }))
+    setCategorySuggestion(null)
+    lastAppliedQueryRef.current = ''
+  }, [])
+
   useEffect(() => {
     const controller = new AbortController()
-    const loadGlobalCategories = async () => {
+    const timer = setTimeout(async () => {
+      const query = globalForm.query.trim()
       setGlobalCategoriesLoading(true)
       try {
         const params = new URLSearchParams({
-          query: globalForm.query.trim(),
+          query,
           knasta_knastaday: String(globalForm.knasta_knastaday || 0),
           knasta_retails: globalForm.knasta_retails_text,
-          tuganga_mode: globalForm.tuganga_mode,
+          tuganga_mode: query ? 'search' : globalForm.tuganga_mode,
         })
         const res = await fetch(`/api/global-categories?${params.toString()}`, { signal: controller.signal })
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || 'No se pudieron cargar categorias')
+        if (controller.signal.aborted) return
         setGlobalCategories(data.categories || {})
+        const suggested = data.suggested || {}
+        setCategorySuggestion(query ? suggested : null)
+        if (globalForm.auto_categories && query && lastAppliedQueryRef.current !== query) {
+          applySuggestedCategories(suggested, query)
+        }
+        if (!query) {
+          lastAppliedQueryRef.current = ''
+          setCategorySuggestion(null)
+        }
       } catch (err) {
         if (err.name !== 'AbortError') setGlobalCategories((prev) => prev)
       } finally {
         if (!controller.signal.aborted) setGlobalCategoriesLoading(false)
       }
+    }, 500)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
     }
-    loadGlobalCategories()
-    return () => controller.abort()
-  }, [globalForm.query, globalForm.knasta_knastaday, globalForm.knasta_retails_text, globalForm.tuganga_mode])
+  }, [
+    globalForm.query,
+    globalForm.knasta_knastaday,
+    globalForm.knasta_retails_text,
+    globalForm.tuganga_mode,
+    globalForm.auto_categories,
+    applySuggestedCategories,
+  ])
+
+  useEffect(() => {
+    if (!globalForm.auto_categories || !globalForm.query.trim() || !categorySuggestion) return
+    if (lastAppliedQueryRef.current === globalForm.query.trim()) return
+    applySuggestedCategories(categorySuggestion, globalForm.query)
+  }, [globalForm.auto_categories, categorySuggestion, globalForm.query, applySuggestedCategories])
+
+  const onGlobalChange = (key, value) => {
+    const categoryKeys = new Set(['pulga_category', 'knasta_category', 'solotodo_category_id', 'travel_category_id', 'tuganga_category'])
+    setGlobalForm((prev) => {
+      const next = { ...prev, [key]: value }
+      if (categoryKeys.has(key) && prev.auto_categories) {
+        next.auto_categories = false
+      }
+      return next
+    })
+  }
 
   const saveCookies = async () => {
     if (!cookieRawText.trim()) return
@@ -222,10 +297,6 @@ function App() {
     () => Boolean(globalForm.query.trim() || (globalForm.sources.length === 1 && globalForm.sources[0] === 'descuentosrata')),
     [globalForm.query, globalForm.sources],
   )
-
-  const onGlobalChange = (key, value) => {
-    setGlobalForm((prev) => ({ ...prev, [key]: value }))
-  }
 
   const toggleGlobalSource = (source) => {
     setGlobalForm((prev) => {
@@ -373,6 +444,9 @@ function App() {
         toggleGlobalSource={toggleGlobalSource}
         globalCategories={globalCategories}
         globalCategoriesLoading={globalCategoriesLoading}
+        categorySuggestion={categorySuggestion}
+        onResetAllCategories={resetAllCategories}
+        onReapplyCategorySuggestions={reapplyCategorySuggestions}
         globalResult={globalResult}
         globalStatus={globalStatus}
         globalLoading={globalLoading}
