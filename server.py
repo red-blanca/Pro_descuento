@@ -505,11 +505,46 @@ def categories(payload: SearchPayload) -> dict:
 
 def _run_global_job(job_id: str, raw_config: dict) -> None:
     """Run global search in background thread and store result in _JOBS."""
+    def progress_callback(source: str, payload: dict) -> None:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if not job:
+                return
+            if "items" not in job or job["items"] is None:
+                job["items"] = []
+            if "runs" not in job or job["runs"] is None:
+                job["runs"] = []
+            
+            source_items = [{"source": source, **item} for item in (payload.get("items") or [])]
+            job["items"] = [item for item in job["items"] if item.get("source") != source]
+            job["items"].extend(source_items)
+            
+            job["runs"] = [run for run in job["runs"] if run.get("source") != source]
+            job["runs"].append({
+                "source": source,
+                "ok": payload.get("ok", False),
+                "count": len(payload.get("items") or []),
+                "output_file": payload.get("output_file"),
+                "error": payload.get("error"),
+                "warning": payload.get("warning"),
+                "elapsed_seconds": payload.get("elapsed_seconds", 0)
+            })
+            job["total_count"] = len(job["items"])
+
     try:
-        result = global_search.run_global_search(raw_config)
+        with _JOBS_LOCK:
+            if job_id in _JOBS:
+                _JOBS[job_id]["items"] = []
+                _JOBS[job_id]["runs"] = []
+                _JOBS[job_id]["total_count"] = 0
+
+        result = global_search.run_global_search(raw_config, progress_callback=progress_callback)
         with _JOBS_LOCK:
             _JOBS[job_id]["status"] = "done"
             _JOBS[job_id]["result"] = result
+            _JOBS[job_id]["items"] = result.get("items", [])
+            _JOBS[job_id]["runs"] = result.get("runs", [])
+            _JOBS[job_id]["total_count"] = result.get("total_count", 0)
     except Exception as exc:
         with _JOBS_LOCK:
             _JOBS[job_id]["status"] = "error"
@@ -536,6 +571,9 @@ def global_search_start(payload: GlobalSearchPayload) -> dict:
             "finished_at": None,
             "result": None,
             "error": None,
+            "items": [],
+            "runs": [],
+            "total_count": 0,
         }
     thread = threading.Thread(target=_run_global_job, args=(job_id, raw), daemon=True)
     thread.start()
@@ -552,22 +590,28 @@ def global_search_poll(job_id: str) -> dict:
     elapsed = round(time.time() - job["started_at"], 1)
 
     if job["status"] == "running":
-        return {"job_id": job_id, "status": "running", "elapsed_seconds": elapsed}
+        return {
+            "job_id": job_id,
+            "status": "running",
+            "elapsed_seconds": elapsed,
+            "total_count": job.get("total_count", 0),
+            "items": job.get("items", []),
+            "runs": job.get("runs", []),
+        }
 
     if job["status"] == "error":
         return {"job_id": job_id, "status": "error", "error": job["error"], "elapsed_seconds": elapsed}
 
-    result = job["result"]
-    # Strip heavy fields that the frontend doesn't need from by_source
-    runs = result.get("runs") or []
+    result = job["result"] or {}
+    runs = job.get("runs") or result.get("runs") or []
     return {
         "job_id": job_id,
         "status": "done",
         "elapsed_seconds": result.get("elapsed_seconds", elapsed),
-        "total_count": result.get("total_count", 0),
-        "query": result.get("query", ""),
+        "total_count": job.get("total_count") or result.get("total_count", 0),
+        "query": result.get("query", job.get("query", "")),
         "scan_scope": result.get("scan_scope", ""),
-        "items": result.get("items", []),
+        "items": job.get("items") or result.get("items", []),
         "runs": runs,
     }
 

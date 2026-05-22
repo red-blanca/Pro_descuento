@@ -545,7 +545,11 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_global_search(raw_config: dict[str, Any], output_base: Path | None = None) -> dict[str, Any]:
+def run_global_search(
+    raw_config: dict[str, Any],
+    output_base: Path | None = None,
+    progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     cfg = build_config(raw_config)
     if not cfg["query"] and any(source != "descuentosrata" for source in cfg["sources"]):
         raise ValueError("Debes indicar una busqueda para las fuentes principales.")
@@ -578,6 +582,11 @@ def run_global_search(raw_config: dict[str, Any], output_base: Path | None = Non
             path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
             payload["output_file"] = str(path)
             by_source[source] = payload
+            if progress_callback:
+                try:
+                    progress_callback(source, payload)
+                except Exception:
+                    pass
 
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()

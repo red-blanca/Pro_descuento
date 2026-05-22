@@ -338,15 +338,35 @@ function App() {
   }
 
   const pollGlobalJob = async (jobId) => {
+    let attempts = 0
     while (true) {
-      await new Promise((r) => setTimeout(r, 2000))
+      // Progressive polling: check quickly at first, then slow down.
+      let delay = 2000
+      if (attempts === 0) {
+        delay = 200
+      } else if (attempts < 6) {
+        delay = 500
+      } else if (attempts < 13) {
+        delay = 1000
+      } else {
+        delay = 2000
+      }
+
+      await new Promise((r) => setTimeout(r, delay))
+      attempts++
+
       if (globalAbortRef.current) throw new Error('Escaneo abortado por el usuario')
       const res = await fetch(`/api/global-search/${jobId}`)
       const data = await safeJson(res)
       if (!res.ok) throw new Error(data.detail || 'Error consultando estado del job')
       if (data.status === 'error') throw new Error(data.error || 'Error en busqueda conjunta')
+
+      if (data.status === 'running') {
+        setGlobalResult(data)
+        setGlobalStatus(`Buscando... ${data.elapsed_seconds}s`)
+      }
+
       if (data.status === 'done') return data
-      setGlobalStatus(`Buscando... ${data.elapsed_seconds}s`)
     }
   }
 
