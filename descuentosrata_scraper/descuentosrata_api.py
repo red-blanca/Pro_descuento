@@ -137,7 +137,7 @@ def extract_offers(html: str) -> list[dict[str, Any]]:
     
     # Cada tarjeta de oferta está dentro de un div con col y contiene un <a> con clase text-decoration-none
     # El patrón busca el bloque de la oferta
-    card_pattern = re.compile(r'<a[^>]+href="(/oferta/[^"]+)"[^>]+class="text-decoration-none[^"]*">(.*?)</a>', re.DOTALL)
+    card_pattern = re.compile(r'<a[^>]+href="(/oferta/[^"]+)"[^>]*class="[^"]*text-decoration-none[^"]*"[^>]*>(.*?)</a>', re.DOTALL)
     
     for match in card_pattern.finditer(html):
         link_path = match.group(1)
