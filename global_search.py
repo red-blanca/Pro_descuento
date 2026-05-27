@@ -618,6 +618,7 @@ def run_global_search(
                 "output_file": by_source[source].get("output_file"),
                 "error": by_source[source].get("error"),
                 "warning": by_source[source].get("warning"),
+                "elapsed_seconds": by_source[source].get("elapsed_seconds", 0),
             }
             for source in cfg["sources"]
             if source in by_source

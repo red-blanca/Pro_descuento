@@ -7,12 +7,13 @@ export default function GlobalSearchRadar({ elapsedSeconds = 0 }) {
 
   useEffect(() => {
     const interval = setInterval(() => {
+      if (document.hidden) return // Pause generating dots if the tab is inactive
       const nextDot = {
-        id: Date.now(),
+        id: Date.now() + Math.random(),
         x: Math.random() * 80 + 10,
         y: Math.random() * 80 + 10,
       }
-      setDots((prev) => [...prev.slice(-15), nextDot])
+      setDots((prev) => [...prev.slice(-8), nextDot])
       soundService.playRadarBeep()
     }, 400)
     return () => clearInterval(interval)

@@ -65,7 +65,7 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
               <thead>
                 <tr className="border-b border-matrix-green/20 text-[10px] font-black uppercase tracking-widest bg-matrix-green/5">
                   <th className="p-4">RECURSO_ORIGEN</th>
-                  <th className="p-4">CAPACIDAD_CANAL</th>
+                  <th className="p-4">TIEMPO_RESPUESTA</th>
                   <th className="p-4 text-right">ITEMS_LOCALIZADOS</th>
                   <th className="p-4 text-right">ESTADO_FLUJO</th>
                 </tr>
@@ -81,7 +81,9 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
                       </div>
                       <span className="font-black uppercase tracking-tighter">{node?.name || run.source}</span>
                     </td>
-                    <td className="p-4 opacity-50 text-[10px]">98.2%_EFFICIENCY</td>
+                    <td className="p-4 text-matrix-green font-bold text-xs tabular-nums">
+                      {run.elapsed_seconds != null ? `${run.elapsed_seconds}s` : 'N/D'}
+                    </td>
                     <td className="p-4 text-right text-xl font-black">{run.count ?? 0}</td>
                     <td className="p-4 text-right">
                       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 border border-matrix-green bg-matrix-green/10 text-[9px] font-black uppercase">
