@@ -77,7 +77,7 @@ export default function GlobalSearchView({
         setModalResult(globalResult)
         setModalSessionId(entry.id)
         setShowResultsModal(true)
-        soundService.playOpen()
+        soundService.playSuccess()
       })
     }
   }, [globalLoading, globalResult, globalForm.strict_mode, globalForm.smart_filter])

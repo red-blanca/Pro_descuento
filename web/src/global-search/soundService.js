@@ -104,6 +104,27 @@ class SoundService {
     osc.stop(now + 0.6)
   }
 
+  playSuccess() {
+    if (!this.enabled) return
+    this.initCtx()
+    if (!this.ctx) return
+    const now = this.ctx.currentTime
+    const notes = [523.25, 659.25, 783.99, 1046.50] // C5, E5, G5, C6
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator()
+      const gain = this.ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, now + idx * 0.08)
+      gain.gain.setValueAtTime(0.0, now + idx * 0.08)
+      gain.gain.linearRampToValueAtTime(0.06, now + idx * 0.08 + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.3)
+      osc.connect(gain)
+      gain.connect(this.ctx.destination)
+      osc.start(now + idx * 0.08)
+      osc.stop(now + idx * 0.08 + 0.3)
+    })
+  }
+
   playError() {
     if (!this.enabled) return
     this.initCtx()
