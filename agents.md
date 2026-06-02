@@ -10,15 +10,18 @@ Mantener este archivo actualizado es importante: cuando se agregue un scraper, e
 
 **Pro Descuento** es una plataforma multiscraper para buscar, filtrar, comparar y exportar ofertas/descuentos desde varios comercios y agregadores, principalmente de Chile.
 
+La interfaz unica del proyecto es la **busqueda conjunta (global search)**, que consulta multiples fuentes en paralelo y presenta los resultados unificados.
+
 El sistema combina:
 
-- Scrapers CLI en Python.
-- APIs FastAPI/Uvicorn por fuente.
-- Frontends React + Vite por fuente.
-- Una busqueda global que consulta varias fuentes en paralelo.
-- Exportacion a JSON/XLSX.
+- Scrapers Python por fuente (MercadoLibre, Facebook Marketplace, Pulga, Knasta, SoloTodo, Travel Tienda, TuGanga, DescuentosRata).
+- Un backend FastAPI principal (`server.py`) que expone la API de busqueda global, cookies y categorias.
+- Un frontend React + Vite unico (`web/`) con la experiencia de busqueda conjunta.
+- Exportacion a JSON.
 - Automatizacion diaria con GitHub Actions.
-- Despliegue principal preparado para Render con Docker.
+- Despliegue preparado para Render con Docker.
+
+> **Nota historica**: anteriormente cada fuente tenia su propio backend HTTP y frontend Vite individual. Esos archivos pueden seguir en disco pero ya **no se levantan ni se usan**. Toda la funcionalidad pasa por la busqueda conjunta.
 
 El foco del proyecto es encontrar ofertas utiles con filtros practicos: precio minimo/maximo, descuento minimo, condicion del producto, palabras incluidas/excluidas, categoria, tienda, ubicacion, disponibilidad y alcance de busqueda rapida/completa.
 
@@ -26,19 +29,19 @@ El foco del proyecto es encontrar ofertas utiles con filtros practicos: precio m
 
 ## 2. Arquitectura General
 
-El repositorio funciona como un monorepo liviano. Cada scraper conserva su propia carpeta, backend y web, pero el backend principal tambien coordina funcionalidades globales.
+El repositorio funciona como un monorepo liviano. Los scrapers viven en carpetas independientes como modulos Python, pero solo se consumen a traves de la busqueda global.
 
 Capas principales:
 
-- **Scrapers Python**: extraen datos y normalizan resultados en listas de diccionarios.
-- **Backends FastAPI**: exponen endpoints `/api/...` para count, preview, export, categorias y health.
-- **Frontends Vite**: consumen `/api` mediante proxy local hacia su backend correspondiente.
-- **Orquestador local**: `run_all.py` levanta todos los servicios, valida dependencias y puertos.
+- **Scrapers Python**: extraen datos y normalizan resultados en listas de diccionarios. Son importados directamente por `global_search.py`.
+- **Backend FastAPI unico**: `server.py` en la raiz expone endpoints `/api/...` para busqueda global, categorias, cookies y health.
+- **Frontend unico**: `web/` contiene la SPA React/Vite con la experiencia de busqueda conjunta.
+- **Orquestador local**: `run_all.py` levanta el backend + frontend principal.
 - **Busqueda global**: `global_search.py` importa los scrapers, corre fuentes en paralelo y fusiona resultados.
 - **Automatizacion**: `automation/daily_job.py` ejecuta busquedas MercadoLibre configuradas en JSON.
 - **Produccion**: `Dockerfile` compila `web/` y `server.py` sirve API + SPA compilada.
 
-Regla mental: cada fuente debe ser independiente, pero puede participar en la busqueda global mediante un runner en `global_search.py`.
+Regla clave: **no hay vistas individuales por fuente**. Los scrapers solo participan como modulos Python importados por `global_search.py`.
 
 ---
 
@@ -47,8 +50,7 @@ Regla mental: cada fuente debe ser independiente, pero puede participar en la bu
 - **Python**: 3.10+.
 - **API**: FastAPI, Uvicorn, Pydantic.
 - **Excel**: openpyxl.
-- **Frontend principal**: React 19, Vite 7, Tailwind CSS 4, lucide-react, motion.
-- **Frontends secundarios**: React + Vite, CSS local por servicio.
+- **Frontend**: React 19, Vite 7, Tailwind CSS 4, lucide-react, motion.
 - **Despliegue**: Docker + Render Blueprint.
 - **Automatizacion remota**: GitHub Actions.
 
@@ -65,18 +67,15 @@ Si un scraper necesita dependencias propias, revisar primero el `requirements.tx
 
 ## 4. Mapa de Servicios, Puertos y Entry Points
 
+Solo hay un servicio activo:
+
 | Servicio | Carpeta | API app | API port | Web | Web port | Tipo |
 | :--- | :--- | :--- | :---: | :--- | :---: | :--- |
-| MercadoLibre / Core | raiz + `web/` | `server:app` | `8000` | `web/` | `5173` | Vite |
-| Facebook Marketplace | `facebook_marketplace/` | `server_http:app` | `8010` | `facebook_marketplace/web/` | `5184` | Vite |
-| Pulga | `pulga/` | `server:app` | `8015` | `pulga/web/` | `5186` | Vite |
-| Knasta | `knasta_scraper/` | `server:app` | `8020` | `knasta_scraper/web/` | `5185` | Vite |
-| SoloTodo | `solotodo_scraper/` | `solotodo_server:app` | `8001` | `solotodo_scraper/web/` | `5188` | Vite |
-| Travel Tienda | `travel_scraper/` | `server:app` | `8050` | `travel_scraper/web/` | `5189` | Vite |
-| TuGanga | `tuganga_scraper/` | `server:app` | `8030` | `tuganga_scraper/web/` | `5187` | Vite |
-| DescuentosRata | `descuentosrata_scraper/` | `server:app` | `8040` | `descuentosrata_scraper/web/` | `8040` | HTML estatico servido por API |
+| Pro Descuento (busqueda conjunta) | raiz + `web/` | `server:app` | `8000` | `web/` | `5173` | Vite |
 
 La fuente de verdad de este mapa es `run_all.py`, lista `SERVICES`.
+
+> Los backends y frontends individuales de cada scraper (puertos 8001, 8010, 8015, 8020, 8030, 8040, 8050 y sus webs) **ya no se levantan**. Los archivos pueden existir en disco pero no forman parte del flujo activo.
 
 ---
 
@@ -88,19 +87,13 @@ Desde la raiz del repo:
 python run_dev.py
 ```
 
-Levanta todos los backends y frontends, instala dependencias si faltan y abre las URLs.
+Levanta el backend y frontend principal, instala dependencias si faltan y abre la URL.
 
 ```bash
 python run_all.py --no-open --check
 ```
 
-Valida dependencias y arranque de servicios sin dejarlos corriendo. Es el smoke test recomendado despues de cambios de infraestructura.
-
-```bash
-python run_all.py --services mercadolibre pulga --no-open
-```
-
-Levanta solo servicios seleccionados. Los nombres validos son los `key` de `run_all.py`: `mercadolibre`, `facebook`, `pulga`, `knasta`, `solotodo`, `travel`, `tuganga`, `descuentosrata`.
+Valida dependencias y arranque del servicio sin dejarlo corriendo. Es el smoke test recomendado despues de cambios de infraestructura.
 
 ```bash
 python -m uvicorn server:app --host 127.0.0.1 --port 8000
@@ -118,37 +111,32 @@ Levanta solo el frontend principal. El proxy `/api` apunta a `http://127.0.0.1:8
 
 ---
 
-## 6. Directorio Raiz: MercadoLibre y Core
+## 6. Directorio Raiz y Core
 
 Archivos principales:
 
 - `mercadolibre.py`: scraper CLI principal. Busca en MercadoLibre, pagina resultados, aplica filtros, detecta condicion, excluye internacionales por defecto y exporta JSON/XLSX.
-- `server.py`: backend FastAPI principal. Expone API para MercadoLibre, cookies, busqueda global y sirve `web/dist` en produccion.
+- `server.py`: backend FastAPI unico. Expone API de busqueda global, cookies y sirve `web/dist` en produccion.
 - `global_search.py`: coordinador multiscraper. Importa runners de todas las fuentes, ejecuta en paralelo, filtra, deduplica por fuente y escribe resultados en `exports/global_<query>_<timestamp>/`.
-- `category_suggest.py`: apoyo para sugerencias/categorias de MercadoLibre.
-- `run_all.py`: orquestador de desarrollo multiservicio.
+- `category_suggest.py`: apoyo para sugerencias/categorias automaticas en la busqueda global.
+- `run_all.py`: orquestador de desarrollo (un solo servicio).
 - `run_dev.py`: wrapper directo a `run_all.main`.
-- `Dockerfile`: build multi-etapa para frontend principal + backend FastAPI.
+- `Dockerfile`: build multi-etapa para frontend + backend FastAPI.
 - `render.yaml`: definicion Render Blueprint.
 - `requirements.txt`: dependencias Python del backend principal.
 - `cookies.txt`: cookie local opcional para MercadoLibre. Tratar como dato sensible.
 - `exports/`: salidas locales generadas por scrapers y busqueda global.
 - `automation/`: job diario MercadoLibre.
-- `web/`: frontend principal React/Vite.
+- `web/`: frontend unico React/Vite (busqueda conjunta).
 
-Endpoints principales en `server.py`:
+Endpoints en `server.py`:
 
-- `POST /api/count`: conteo aproximado MercadoLibre.
-- `POST /api/count-exact`: conteo exacto/captura mas completa MercadoLibre.
-- `POST /api/export`: genera XLSX MercadoLibre.
-- `POST /api/preview`: obtiene vista previa MercadoLibre.
-- `POST /api/categories`: categorias MercadoLibre.
 - `POST /api/global-search`: inicia busqueda global asincrona.
 - `GET /api/global-search/{job_id}`: consulta estado/resultado de busqueda global.
 - `GET /api/global-categories`: categorias/opciones para busqueda global.
 - `POST /api/cookies`: guarda/configura cookies de MercadoLibre.
 - `GET /api/cookies/status`: estado de cookies MercadoLibre.
-- `POST /api/facebook-cookies`: guarda/configura cookies Facebook desde el backend principal.
+- `POST /api/facebook-cookies`: guarda/configura cookies Facebook.
 - `GET /api/facebook-cookies/status`: estado de cookies Facebook.
 - `GET /api/health`: healthcheck.
 
@@ -190,9 +178,9 @@ Notas de comportamiento:
 
 ---
 
-## 8. Busqueda Global
+## 8. Busqueda Global (Funcionalidad Central)
 
-La busqueda global vive en `global_search.py` y se usa desde `server.py` con los endpoints `/api/global-search`.
+La busqueda global vive en `global_search.py` y se usa desde `server.py` con los endpoints `/api/global-search`. **Esta es la funcionalidad central y unica de la interfaz web.**
 
 Fuentes soportadas:
 
@@ -209,7 +197,7 @@ Flujo:
 
 1. `build_config(raw)` normaliza input de la UI/API.
 2. Cada fuente se ejecuta con su runner `_run_<fuente>`.
-3. Los runners llaman a funciones publicas del scraper correspondiente.
+3. Los runners llaman a funciones publicas del scraper correspondiente (importado como modulo Python, sin pasar por HTTP).
 4. `_filter_words` aplica filtros transversales de include/exclude, modo estricto y filtro inteligente.
 5. Cada resultado por fuente se escribe como JSON.
 6. Se fusiona todo en `all_results.json`.
@@ -231,19 +219,19 @@ Campos de configuracion global relevantes:
 
 Importante:
 
-- Si se agrega una nueva fuente al proyecto, no basta con crear su carpeta. Tambien hay que agregar runner en `global_search.py`, endpoint/categorias si aplica, UI en `web/src/global-search`, y servicio en `run_all.py` si tiene API/web propia.
+- Si se agrega una nueva fuente al proyecto, hay que: crear el modulo scraper Python, agregar runner en `global_search.py`, agregar source a `DEFAULT_SOURCES`, agregar controles en `web/src/global-search`, y actualizar este `agents.md`.
 - La deduplicacion global actual conserva duplicados entre fuentes distintas; deduplica usando `source:key`.
 - El filtro inteligente descarta accesorios fuertes si parecen irrelevantes para la consulta. Revisar `_filter_words` antes de cambiar comportamiento de relevancia.
 
 ---
 
-## 9. Frontend Principal (`web/`)
+## 9. Frontend (`web/`)
 
-La SPA principal usa React + Vite + Tailwind. Es la UI mas importante del proyecto.
+La SPA usa React + Vite + Tailwind. Es la **unica interfaz web del proyecto** y muestra exclusivamente la busqueda conjunta.
 
 Archivos clave:
 
-- `web/src/App.jsx`: aplicacion principal MercadoLibre y/o integracion de vistas principales.
+- `web/src/App.jsx`: aplicacion principal. Gestiona estado global, cookies, busqueda global y renderiza `<GlobalSearchView />`.
 - `web/src/App.css` y `web/src/index.css`: estilos base.
 - `web/src/main.jsx`: entrypoint React.
 - `web/vite.config.js`: plugin React, Tailwind y proxy `/api` a `127.0.0.1:8000`.
@@ -273,236 +261,59 @@ Reglas para cambios UI:
 
 ---
 
-## 10. Frontends Secundarios
+## 10. Scrapers por Fuente (Modulos Python)
 
-Cada scraper con web Vite tiene estructura similar:
+Los scrapers viven en carpetas independientes. Ya **no tienen backends HTTP ni frontends activos**. Se importan directamente como modulos Python por `global_search.py`.
 
-- `web/src/App.jsx`
-- `web/src/App.css`
-- `web/src/index.css`
-- `web/src/main.jsx`
-- `web/vite.config.js`
-- `web/package.json`
+### Facebook Marketplace (`facebook_marketplace/`)
 
-Proxy por servicio:
-
-- `web/`: `/api` -> `127.0.0.1:8000`
-- `facebook_marketplace/web/`: `/api` -> `127.0.0.1:8010`
-- `pulga/web/`: `/api` -> `127.0.0.1:8015`
-- `tuganga_scraper/web/`: `/api` -> `127.0.0.1:8030`
-
-Algunos `vite.config.js` no declaran puerto/proxy explicitamente porque el puerto lo fuerza `run_all.py` al invocar Vite con `--port`.
-
----
-
-## 11. Facebook Marketplace
-
-Carpeta: `facebook_marketplace/`
-
-Responsabilidad: scraping de Facebook Marketplace con soporte de cookies/perfiles, ubicacion, radio y filtros de precio/palabras.
-
-Archivos clave:
-
-- `facebook_api.py`: logica principal reutilizable desde API y busqueda global. Contiene opciones de busqueda, carga de perfiles/cookies y ejecucion.
-- `facebook_marketplace.py`: CLI/scraper orientado a Marketplace.
-- `server_http.py`: API usada por `run_all.py` en el puerto `8010`.
-- `server.py`: API alternativa/historica con endpoints similares.
-- `login_facebook.py`, `import_browser_cookies.py`, `import_cookie_text.py`: utilidades para cookies/sesion.
-- `fb_cookie_profiles.json`, `fb_cookies.json`, `fb_cookies_talca.json`, `facebook_cookies.txt`, `storage_state.json`: datos de sesion/cookies. Tratar como sensibles.
-- `automation/`: automatizacion especifica de Facebook si se usa.
-- `web/`: UI Vite de Facebook Marketplace.
-
-Endpoints `server_http.py`:
-
-- `GET /api/cookies/status`
-- `POST /api/cookies`
-- `DELETE /api/cookies`
-- `POST /api/count-exact`
-- `POST /api/preview`
-- `POST /api/export`
-- `GET /api/health`
-
-Notas:
-
-- No mezclar cookies reales en commits.
-- Facebook cambia markup/endpoints con frecuencia; aislar hacks en `facebook_api.py` o utilidades de Facebook.
+- `facebook_api.py`: logica principal. Contiene `SearchOptions`, `execute_search`, carga de perfiles/cookies.
+- `facebook_marketplace.py`: CLI/scraper.
+- Archivos de cookies/sesion: tratar como sensibles.
 - La busqueda global usa `facebook_api.execute_search`.
 
----
-
-## 12. Pulga
-
-Carpeta: `pulga/`
-
-Responsabilidad: busqueda y exportacion desde Pulga.cl.
-
-Archivos:
+### Pulga (`pulga/`)
 
 - `pulga.py`: scraper y filtros.
-- `server.py`: API FastAPI puerto `8015`.
-- `run_dev.py`: levantamiento puntual del servicio.
-- `requirements.txt`: dependencias propias si aplica.
-- `web/`: UI Vite.
+- La busqueda global usa `collect_results(...)` y `apply_filters(...)`.
+- Campos: `pulga_category`, `pulga_condition`, `pulga_city`, `pulga_word`.
 
-Endpoints:
+### Knasta (`knasta_scraper/`)
 
-- `POST /api/count`
-- `POST /api/preview`
-- `POST /api/export`
-- `GET /api/categories`
-- `GET /api/health`
+- `knasta_api.py`: scraper, `SearchOptions`, `execute_search`.
+- La busqueda global usa `knasta_api.SearchOptions` y `knasta_api.execute_search`.
+- Campos: `knasta_retails`, `knasta_knastaday`, `knasta_category`.
 
-Busqueda global:
-
-- Importa `pulga`.
-- Usa `collect_results(...)` y `apply_filters(...)`.
-- Campo relevante: `pulga_category`, `pulga_condition`, `pulga_city`, `pulga_word`.
-
----
-
-## 13. Knasta
-
-Carpeta: `knasta_scraper/`
-
-Responsabilidad: consulta de ofertas, categorias, retails e historial/ofertas desde Knasta.
-
-Archivos:
-
-- `knasta_api.py`: API interna del scraper y `SearchOptions`.
-- `server.py`: API FastAPI puerto `8020`.
-- `analyze*.py`, `find_*.py`, `check_limit.py`: scripts de investigacion/debug. No son parte critica del runtime normal.
-- `README.md`, `requirements.txt`, `run_dev.py`.
-- `web/`: UI Vite.
-
-Endpoints:
-
-- `POST /api/search`
-- `GET /api/categories`
-- `GET /api/retails`
-- `GET /api/health`
-
-Busqueda global:
-
-- Usa `knasta_api.SearchOptions` y `knasta_api.execute_search`.
-- Campos relevantes: `knasta_retails`, `knasta_knastaday`, `knasta_category`.
-- En modo `complete` puede usar muchas paginas; cuidar limites y tiempos.
-
----
-
-## 14. SoloTodo
-
-Carpeta: `solotodo_scraper/`
-
-Responsabilidad: busqueda/comparacion de productos tecnologicos usando datos/API de SoloTodo.
-
-Archivos:
+### SoloTodo (`solotodo_scraper/`)
 
 - `solotodo.py`: scraper, categorias, productos, precios y filtros.
-- `solotodo_server.py`: API FastAPI puerto `8001`.
-- `README.md`, `requirements.txt`, `run_dev.py`.
-- `web/`: UI Vite.
+- La busqueda global usa `collect_browse_results(...)` y `apply_filters(...)`.
+- Campos: `solotodo_category_id`, `solotodo_country_id`, `solotodo_ordering`.
+- `solotodo_category_id = 0` significa todas las categorias.
 
-Endpoints:
-
-- `GET /api/categories`
-- `POST /api/categories`
-- `POST /api/count`
-- `POST /api/preview`
-- `POST /api/export`
-- `GET /api/health`
-
-Busqueda global:
-
-- Usa `collect_browse_results(...)` y `apply_filters(...)`.
-- Campos relevantes: `solotodo_category_id`, `solotodo_country_id`, `solotodo_ordering`.
-- `solotodo_category_id = 0` significa todas las categorias; no convertirlo accidentalmente a default.
-
----
-
-## 15. Travel Tienda
-
-Carpeta: `travel_scraper/`
-
-Responsabilidad: busqueda de productos/ofertas en Travel Tienda.
-
-Archivos:
+### Travel Tienda (`travel_scraper/`)
 
 - `travel.py`: scraper y filtros.
-- `server.py`: API FastAPI puerto `8050`.
-- `README.md`, `requirements.txt`, `run_dev.py`.
-- `web/`: UI Vite.
+- La busqueda global usa `collect_results(...)` y `apply_filters(...)`.
+- Campos: `travel_category_id`, `travel_ordering`.
 
-Endpoints:
+### TuGanga (`tuganga_scraper/`)
 
-- `GET /api/categories`
-- `POST /api/categories`
-- `POST /api/count`
-- `POST /api/preview`
-- `POST /api/export`
-- `GET /api/health`
+- `tuganga_api.py`: scraper, `SearchOptions`, `execute_search`.
+- La busqueda global usa `tuganga_api.SearchOptions` y `tuganga_api.execute_search`.
+- Campos: `tuganga_mode`, `tuganga_stores`, `tuganga_categories`, `tuganga_only_available`, `tuganga_sort`.
 
-Busqueda global:
+### DescuentosRata (`descuentosrata_scraper/`)
 
-- Usa `collect_results(...)` y `apply_filters(...)`.
-- Campos relevantes: `travel_category_id`, `travel_ordering`.
+- `descuentosrata_api.py`: scraper, `SearchOptions`, `execute_search`.
+- La busqueda global usa `descuentosrata_api.execute_search`.
+- Campos: `descuentosrata_all`, `descuentosrata_limit`.
 
----
-
-## 16. TuGanga
-
-Carpeta: `tuganga_scraper/`
-
-Responsabilidad: busqueda de ofertas agrupadas desde TuGanga.
-
-Archivos:
-
-- `tuganga_api.py`: scraper, `SearchOptions`, ejecucion.
-- `server.py`: API FastAPI puerto `8030`.
-- `web/`: UI Vite.
-
-Endpoints:
-
-- `POST /api/search`
-- `GET /api/categories`
-- `GET /api/health`
-
-Busqueda global:
-
-- Usa `tuganga_api.SearchOptions` y `tuganga_api.execute_search`.
-- Campos relevantes: `tuganga_mode`, `tuganga_stores`, `tuganga_categories`, `tuganga_only_available`, `tuganga_sort`.
-- Si hay `query`, `global_search.py` fuerza `tuganga_mode = "search"`.
+> Los archivos `server.py`, `server_http.py`, `run_dev.py` y carpetas `web/` dentro de cada scraper son **legado inactivo**. No borrarlos pero no depender de ellos.
 
 ---
 
-## 17. DescuentosRata
-
-Carpeta: `descuentosrata_scraper/`
-
-Responsabilidad: extraccion de publicaciones/ofertas desde DescuentosRata.
-
-Archivos:
-
-- `descuentosrata_api.py`: scraper, `SearchOptions`, ejecucion.
-- `server.py`: API FastAPI puerto `8040`.
-- `web/index.html`: UI estatica HTML/JS servida por el mismo backend.
-- `requirements.txt`.
-
-Endpoints:
-
-- `POST /api/preview`
-- `POST /api/export`
-- `GET /api/health`
-- `GET /`
-
-Busqueda global:
-
-- Usa `descuentosrata_api.execute_search`.
-- Campos relevantes: `descuentosrata_all`, `descuentosrata_limit`.
-- Puede buscar todo (`descuentosrata_all = true`) aunque la consulta principal este vacia.
-
----
-
-## 18. Automatizacion
+## 11. Automatizacion
 
 Carpeta: `automation/`
 
@@ -540,9 +351,9 @@ Antes de modificar automatizacion, revisar `.github/workflows/daily_scan.yml` si
 
 ---
 
-## 19. Despliegue y Produccion
+## 12. Despliegue y Produccion
 
-El despliegue principal empaqueta solo la aplicacion core MercadoLibre/global:
+El despliegue empaqueta la aplicacion de busqueda conjunta:
 
 - Construye `web/` con Vite.
 - Sirve `web/dist` desde `server.py`.
@@ -568,11 +379,9 @@ Abrir:
 http://127.0.0.1:10000
 ```
 
-Nota: los servicios secundarios no necesariamente quedan desplegados como procesos separados en este Dockerfile. No asumir que una web secundaria esta disponible en produccion salvo que se haya agregado explicitamente al despliegue.
-
 ---
 
-## 20. Datos, Salidas y Archivos Sensibles
+## 13. Datos, Salidas y Archivos Sensibles
 
 Salidas generadas:
 
@@ -598,7 +407,7 @@ Reglas:
 
 ---
 
-## 21. Carpetas Auxiliares o de Referencia
+## 14. Carpetas Auxiliares o de Referencia
 
 Estas carpetas pueden servir como referencia, pero no son runtime principal:
 
@@ -612,13 +421,13 @@ No refactorizar ni borrar estas carpetas como parte de cambios funcionales salvo
 
 ---
 
-## 22. Convenciones de Desarrollo para IA
+## 15. Convenciones de Desarrollo para IA
 
 Antes de cambiar codigo:
 
 - Leer el archivo objetivo y los contratos cercanos.
 - Buscar endpoints/funciones existentes con `rg`.
-- Identificar si el cambio afecta solo una fuente o tambien busqueda global/UI/automatizacion.
+- Identificar si el cambio afecta la busqueda global/UI/automatizacion.
 
 Python:
 
@@ -626,19 +435,19 @@ Python:
 - Agregar dependencias a `requirements.txt` correspondiente.
 - Mantener scrapers desacoplados.
 - Usar timeouts y headers realistas en scraping.
-- No romper firmas usadas por APIs o `global_search.py`.
+- No romper firmas usadas por `global_search.py`.
 - Si una funcion devuelve items, preservar nombres de campos que la UI ya usa: `title`, `name`, `price`, `link`, `url`, `image`, `discount_percent`, `condition`, `store`, `category`, etc.
 
 FastAPI:
 
 - Mantener endpoints bajo `/api`.
-- Mantener `GET /api/health` por servicio.
+- Mantener `GET /api/health`.
 - Preservar CORS permisivo para desarrollo local salvo requerimiento explicito.
 - Si se sirve SPA, montar assets y fallback a `index.html` solo cuando exista `dist`.
 
 Frontend:
 
-- Respetar proxies Vite.
+- Respetar proxy Vite (`/api` -> `127.0.0.1:8000`).
 - Mantener UI responsiva.
 - No hardcodear puertos en componentes si ya se usa `/api`.
 - Mantener estados de carga, error y vacio.
@@ -658,23 +467,22 @@ Git:
 
 ---
 
-## 23. Checklist para Agregar una Nueva Fuente
+## 16. Checklist para Agregar una Nueva Fuente
 
 1. Crear carpeta del scraper con modulo Python principal.
 2. Definir una funcion reusable tipo `execute_search` o `collect_results`.
 3. Normalizar resultados a diccionarios con campos comunes.
-4. Crear `server.py` FastAPI con `/api/health` y endpoints necesarios.
-5. Crear `web/` si necesita UI propia.
-6. Agregar servicio en `run_all.py` con puertos no ocupados.
-7. Agregar runner en `global_search.py`.
-8. Agregar source a `DEFAULT_SOURCES` si debe participar por defecto.
-9. Agregar controles/opciones en `web/src/global-search`.
-10. Actualizar este `agents.md`.
-11. Probar con `python run_all.py --services <nuevo> --no-open --check`.
+4. Agregar runner en `global_search.py`.
+5. Agregar source a `DEFAULT_SOURCES` si debe participar por defecto.
+6. Agregar controles/opciones en `web/src/global-search`.
+7. Actualizar este `agents.md`.
+8. Probar busqueda conjunta con la nueva fuente.
+
+> Ya no se necesita crear `server.py` ni `web/` por fuente. Los scrapers se importan directamente como modulos Python.
 
 ---
 
-## 24. Checklist para Agregar un Filtro Global
+## 17. Checklist para Agregar un Filtro Global
 
 1. Agregar default y normalizacion en `global_search.build_config`.
 2. Pasar el campo al runner de cada fuente que lo soporte.
@@ -686,7 +494,7 @@ Git:
 
 ---
 
-## 25. Pruebas y Verificacion Recomendada
+## 18. Pruebas y Verificacion Recomendada
 
 No hay una suite unica consolidada. Usar verificaciones segun el cambio:
 
@@ -703,7 +511,7 @@ cd web
 npm run build
 ```
 
-Todos los servicios:
+Servicio completo:
 
 ```bash
 python run_all.py --no-open --check
@@ -725,10 +533,10 @@ Si el cambio toca UI, validar tambien en navegador local. Si toca scraping real,
 
 ---
 
-## 26. Problemas Frecuentes
+## 19. Problemas Frecuentes
 
-- **Puerto ocupado**: `run_all.py` detecta puertos abiertos y puede reutilizarlos. Revisar puertos 8000, 8001, 8010, 8015, 8020, 8030, 8040, 8050 y webs 5173/5184/5185/5186/5187/5188/5189.
-- **Vite sin dependencias**: ejecutar `npm ci` dentro del `web/` correspondiente o dejar que `run_all.py` lo haga.
+- **Puerto ocupado**: revisar puertos 8000 (API) y 5173 (web).
+- **Vite sin dependencias**: ejecutar `npm ci` dentro de `web/` o dejar que `run_all.py` lo haga.
 - **MercadoLibre devuelve shell/bloqueo**: usar `ML_COOKIE`, `cookies.txt` o `--cookie-file`.
 - **Facebook no devuelve datos**: revisar cookies/perfil, ubicacion, radio y cambios del sitio.
 - **Resultados irrelevantes**: revisar `include_words`, `exclude_words`, `strict_mode` y `smart_filter`.
@@ -737,12 +545,11 @@ Si el cambio toca UI, validar tambien en navegador local. Si toca scraping real,
 
 ---
 
-## 27. Principio de Mantenimiento
+## 20. Principio de Mantenimiento
 
-El proyecto crece por fuentes. Mantener cada scraper aislado, pero conectar solo lo necesario en estos puntos transversales:
+El proyecto crece por fuentes. Mantener cada scraper aislado como modulo Python, pero conectar solo lo necesario en estos puntos transversales:
 
-- `run_all.py` para desarrollo local.
 - `global_search.py` para busqueda multiscraper.
-- `server.py` si la UI principal necesita exponerlo.
-- `web/src/global-search/` si afecta la experiencia global.
+- `server.py` para exponer la API de busqueda global.
+- `web/src/global-search/` para la experiencia de usuario.
 - `agents.md` para que futuras IA no tengan que redescubrir la arquitectura.

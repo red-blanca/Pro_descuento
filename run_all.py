@@ -33,23 +33,7 @@ class Service:
 
 
 SERVICES = [
-    Service("mercadolibre", "MercadoLibre", ROOT, "server:app", 8000, ROOT / "web", 5173),
-    Service("facebook", "Facebook Marketplace", ROOT / "facebook_marketplace", "server_http:app", 8010, ROOT / "facebook_marketplace" / "web", 5184),
-    Service("pulga", "Pulga", ROOT / "pulga", "server:app", 8015, ROOT / "pulga" / "web", 5186),
-    Service("knasta", "Knasta", ROOT / "knasta_scraper", "server:app", 8020, ROOT / "knasta_scraper" / "web", 5185),
-    Service("solotodo", "SoloTodo", ROOT / "solotodo_scraper", "solotodo_server:app", 8001, ROOT / "solotodo_scraper" / "web", 5188),
-    Service("travel", "Travel Tienda", ROOT / "travel_scraper", "server:app", 8050, ROOT / "travel_scraper" / "web", 5189),
-    Service("tuganga", "TuGanga", ROOT / "tuganga_scraper", "server:app", 8030, ROOT / "tuganga_scraper" / "web", 5187),
-    Service(
-        "descuentosrata",
-        "DescuentosRata",
-        ROOT / "descuentosrata_scraper",
-        "server:app",
-        8040,
-        ROOT / "descuentosrata_scraper" / "web",
-        8040,
-        web_kind="static",
-    ),
+    Service("prodescuento", "Pro Descuento", ROOT, "server:app", 8000, ROOT / "web", 5173),
 ]
 
 
@@ -254,7 +238,7 @@ def _start_service(
                 )
         started.append((f"{service.key}-web", web_proc))
     else:
-        print(f"[{service.label}] Web (estático) -> http://{HOST}:{service.web_port}")
+        print(f"[{service.label}] Web (estatico) -> http://{HOST}:{service.web_port}")
         started.append((f"{service.key}-web", None))
 
     return started
@@ -288,13 +272,12 @@ def _selected_services(names: list[str]) -> list[Service]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Levanta todas las vistas de Pro Descuento.")
+    parser = argparse.ArgumentParser(description="Levanta Pro Descuento (busqueda conjunta).")
     parser.add_argument(
         "services",
         nargs="*",
         help=(
-            "Servicios a levantar: all, mercadolibre, facebook, pulga, knasta, solotodo, travel, tuganga, descuentosrata. "
-            "Default: all."
+            "Servicios a levantar. Default: all (solo hay un servicio principal)."
         ),
     )
     parser.add_argument("--no-open", action="store_true", help="No abrir URLs en el navegador.")
