@@ -442,10 +442,29 @@ def collect_results(
     limit: int = 200,
     fetch_all: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    cleaned_query = query.strip()
     if category_id:
-        items, meta = _collect_category(category_id, query.strip(), limit, fetch_all)
+        try:
+            items, meta = _collect_category(category_id, cleaned_query, limit, fetch_all)
+        except Exception as exc:
+            if not cleaned_query:
+                raise
+            items, meta = _collect_search(cleaned_query, limit, fetch_all)
+            meta["category_fallback"] = True
+            meta["category_error"] = str(exc)
+        else:
+            if cleaned_query and not items:
+                fallback_items, fallback_meta = _collect_search(cleaned_query, limit, fetch_all)
+                if fallback_items:
+                    items = fallback_items
+                    meta = {
+                        **fallback_meta,
+                        "category_fallback": True,
+                        "category_empty": True,
+                        "requested_category_id": category_id,
+                    }
     else:
-        items, meta = _collect_search(query.strip(), limit, fetch_all)
+        items, meta = _collect_search(cleaned_query, limit, fetch_all)
     items = apply_filters(items, ordering=ordering)
     return items[: min(limit, 10000)], meta
 

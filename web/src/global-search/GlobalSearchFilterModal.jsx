@@ -53,7 +53,7 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
             <TerminalIcon size={18} strokeWidth={3} />
             <span className="truncate">CONFIGURACION_PROTOCOL_{node.id}</span>
           </div>
-          <button onClick={() => { soundService.playClick(); onClose() }} className="hover:bg-black hover:text-matrix-green p-1 transition-all">
+          <button onClick={() => { soundService.playCancel(); onClose() }} className="hover:bg-black hover:text-matrix-green p-1 transition-all">
             <X size={20} strokeWidth={3} />
           </button>
         </div>
@@ -196,10 +196,10 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
             )}
           </div>
           <div className="mt-12 flex justify-end gap-4">
-            <button onClick={onClose} className="px-6 py-2 border-2 border-matrix-green/30 text-matrix-green/50 font-black uppercase text-xs hover:border-matrix-green hover:text-matrix-green transition-all">Cerrar</button>
+            <button onClick={() => { soundService.playCancel(); onClose() }} className="px-6 py-2 border-2 border-matrix-green/30 text-matrix-green/50 font-black uppercase text-xs hover:border-matrix-green hover:text-matrix-green transition-all">Cerrar</button>
             <button
               onClick={() => {
-                soundService.playClick()
+                soundService.playAction()
                 onClose()
               }}
               className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(51,255,102,0.3)]"
@@ -213,4 +213,3 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
     </Motion.div>
   )
 }
-

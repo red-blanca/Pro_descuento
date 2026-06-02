@@ -31,7 +31,7 @@ export default function GlobalSearchNavbar({ cookieHealth, facebookCookieHealth,
         <button
           type="button"
           onClick={() => {
-            soundService.playClick()
+            soundService.playAction()
             onOpenCookieModal()
           }}
           className="flex items-center justify-center w-8 h-8 bg-black text-matrix-green border border-black hover:bg-matrix-green hover:text-black transition-all"

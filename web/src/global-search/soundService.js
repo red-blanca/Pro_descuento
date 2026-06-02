@@ -1,6 +1,30 @@
 class SoundService {
   ctx = null
   enabled = true
+  assetCache = new Map()
+  radarAudio = null
+
+  playAsset(path, volume = 0.45, options = {}) {
+    if (!this.enabled || typeof Audio === 'undefined') return false
+    try {
+      const cached = this.assetCache.get(path)
+      const audio = cached ? cached.cloneNode() : new Audio(path)
+      if (!cached) {
+        const preloadAudio = new Audio(path)
+        preloadAudio.preload = 'auto'
+        this.assetCache.set(path, preloadAudio)
+      }
+      audio.volume = volume
+      audio.loop = Boolean(options.loop)
+      audio.currentTime = 0
+      const playPromise = audio.play()
+      if (playPromise?.catch) playPromise.catch(() => {})
+      if (options.retain) return audio
+      return true
+    } catch {
+      return false
+    }
+  }
 
   initCtx() {
     if (!this.enabled || typeof window === 'undefined') return
@@ -12,11 +36,15 @@ class SoundService {
 
   setEnabled(val) {
     this.enabled = val
-    if (!val && this.ctx) this.ctx.suspend()
+    if (!val) {
+      this.stopRadarLoop()
+      if (this.ctx) this.ctx.suspend()
+    }
   }
 
   playClick() {
     if (!this.enabled) return
+    if (this.playAsset('/sounds/re_menu_2.mp3', 0.5)) return
     this.initCtx()
     if (!this.ctx) return
     const now = this.ctx.currentTime
@@ -45,8 +73,15 @@ class SoundService {
     thud.stop(now + 0.1)
   }
 
-  playOpen() {
+  playCancel() {
     if (!this.enabled) return
+    if (this.playAsset('/sounds/resident_evil_cancel.mp3', 0.55)) return
+    this.playAction()
+  }
+
+  playAction() {
+    if (!this.enabled) return
+    if (this.playAsset('/sounds/resident_evil_3_menu.mp3', 0.5)) return
     this.initCtx()
     if (!this.ctx) return
     const now = this.ctx.currentTime
@@ -69,6 +104,10 @@ class SoundService {
     osc.stop(now + 0.5)
   }
 
+  playOpen() {
+    this.playAction()
+  }
+
   playBeep(freq = 440, duration = 0.1) {
     if (!this.enabled) return
     this.initCtx()
@@ -87,25 +126,13 @@ class SoundService {
   }
 
   playScan() {
-    if (!this.enabled) return
-    this.initCtx()
-    if (!this.ctx) return
-    const now = this.ctx.currentTime
-    const osc = this.ctx.createOscillator()
-    const gain = this.ctx.createGain()
-    osc.type = 'square'
-    osc.frequency.setValueAtTime(60, now)
-    osc.frequency.linearRampToValueAtTime(180, now + 0.6)
-    gain.gain.setValueAtTime(0.1, now)
-    gain.gain.linearRampToValueAtTime(0, now + 0.6)
-    osc.connect(gain)
-    gain.connect(this.ctx.destination)
-    osc.start()
-    osc.stop(now + 0.6)
+    this.startRadarLoop()
   }
 
   playSuccess() {
     if (!this.enabled) return
+    this.stopRadarLoop()
+    if (this.playAsset('/sounds/choose.mp3', 0.6)) return
     this.initCtx()
     if (!this.ctx) return
     const now = this.ctx.currentTime
@@ -127,6 +154,7 @@ class SoundService {
 
   playError() {
     if (!this.enabled) return
+    this.stopRadarLoop()
     this.initCtx()
     if (!this.ctx) return
     const now = this.ctx.currentTime
@@ -150,6 +178,7 @@ class SoundService {
 
   playRadarBeep() {
     if (!this.enabled) return
+    if (this.playAsset('/sounds/radar_sms.mp3', 0.22)) return
     this.initCtx()
     if (!this.ctx) return
     const now = this.ctx.currentTime
@@ -164,6 +193,25 @@ class SoundService {
     gain.connect(this.ctx.destination)
     osc.start()
     osc.stop(now + 0.1)
+  }
+
+  startRadarLoop() {
+    if (!this.enabled || this.radarAudio) return
+    const audio = this.playAsset('/sounds/radar_sms.mp3', 0.22, { loop: true, retain: true })
+    if (audio && typeof audio !== 'boolean') {
+      this.radarAudio = audio
+    }
+  }
+
+  stopRadarLoop() {
+    if (!this.radarAudio) return
+    try {
+      this.radarAudio.pause()
+      this.radarAudio.currentTime = 0
+    } catch {
+      // ignore audio cleanup failures
+    }
+    this.radarAudio = null
   }
 }
 

@@ -95,7 +95,7 @@ export default function GlobalSearchView({
   }
 
   const handleViewHistoryItem = (entry) => {
-    soundService.playOpen()
+    soundService.playClick()
     setModalResult(entry.result || { status: 'done', total_count: entry.totalItems, elapsed_seconds: entry.elapsed_seconds, runs: entry.runs || [] })
     setModalSessionId(entry.id)
     setShowResultsModal(true)
@@ -205,7 +205,7 @@ export default function GlobalSearchView({
                   ) : (
                     <Motion.div key="matrix" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="relative p-4 md:p-6">
                       <div className="max-w-[1400px] mx-auto mb-6 flex items-center justify-between bg-matrix-green px-4 py-1 text-black font-bold">
-                        <button type="button" onClick={() => { soundService.playClick(); setViewMode('HUD') }} className="flex items-center gap-2 text-xs font-mono tracking-widest uppercase hover:opacity-80 transition-all font-black">
+                        <button type="button" onClick={() => { soundService.playCancel(); setViewMode('HUD') }} className="flex items-center gap-2 text-xs font-mono tracking-widest uppercase hover:opacity-80 transition-all font-black">
                           <ChevronLeft size={16} strokeWidth={3} />
                           RETORNO_A_HUB
                         </button>

@@ -31,7 +31,7 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
           </div>
           <button
             onClick={() => {
-              soundService.playClick()
+              soundService.playCancel()
               onClose()
             }}
             className="hover:bg-black hover:text-matrix-green p-1 transition-all"
@@ -108,7 +108,7 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
           </div>
         </div>
         <div className="p-8 border-t-2 border-matrix-green/20 shrink-0 flex flex-col sm:flex-row justify-end gap-4 bg-black/50">
-          <button onClick={onClose} className="px-8 py-3 border-2 border-matrix-green/40 text-matrix-green/60 font-black uppercase tracking-widest hover:border-matrix-green hover:text-matrix-green transition-all">
+          <button onClick={() => { soundService.playCancel(); onClose() }} className="px-8 py-3 border-2 border-matrix-green/40 text-matrix-green/60 font-black uppercase tracking-widest hover:border-matrix-green hover:text-matrix-green transition-all">
             Regresar_Al_Radar
           </button>
           <button

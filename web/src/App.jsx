@@ -3,6 +3,7 @@ import { motion as Motion } from 'motion/react'
 import { Cookie, ShieldCheck, ShieldAlert, ShieldX, X } from 'lucide-react'
 import './App.css'
 import GlobalSearchView from './global-search/GlobalSearchView.jsx'
+import { soundService } from './global-search/soundService.js'
 
 function App() {
   const globalAbortRef = useRef(false)
@@ -208,6 +209,7 @@ function App() {
 
   const saveCookies = async () => {
     if (!cookieRawText.trim()) return
+    soundService.playAction()
     setCookieSaving(true)
     setCookieMsg('')
     try {
@@ -239,6 +241,7 @@ function App() {
 
   const saveFacebookCookies = async () => {
     if (!facebookCookieRawText.trim()) return
+    soundService.playAction()
     setFacebookCookieSaving(true)
     setFacebookCookieMsg('')
     try {
@@ -397,6 +400,7 @@ function App() {
       setGlobalResult(data)
       setGlobalStatus(`Busqueda lista: ${data.total_count} resultados en ${data.elapsed_seconds}s`)
     } catch (err) {
+      soundService.stopRadarLoop()
       setGlobalStatus(err.message)
     } finally {
       clearInterval(tick)
@@ -423,6 +427,7 @@ function App() {
         setGlobalResult(data)
         setGlobalStatus(`Busqueda lista: ${data.total_count} resultados en ${data.elapsed_seconds}s`)
       } catch (err) {
+        soundService.stopRadarLoop()
         setGlobalStatus(err.message)
         return
       } finally {
@@ -452,6 +457,7 @@ function App() {
 
   const abortGlobalSearch = () => {
     globalAbortRef.current = true
+    soundService.stopRadarLoop()
     setGlobalLoading(false)
     setGlobalStatus('Escaneo abortado por el usuario')
   }
@@ -485,11 +491,11 @@ function App() {
       />
 
       {cookieModalOpen && (
-        <Motion.div className="gs-matrix-root fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm font-mono text-matrix-green" onClick={() => setCookieModalOpen(false)}>
+        <Motion.div className="gs-matrix-root fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm font-mono text-matrix-green" onClick={() => { soundService.playCancel(); setCookieModalOpen(false) }}>
           <div className="w-full max-w-2xl border-4 border-matrix-green bg-black shadow-[0_0_50px_rgba(51,255,102,0.2)] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <Motion.div className="bg-matrix-green text-black px-4 py-2 flex items-center justify-between font-black uppercase tracking-widest">
               <h2 className="flex items-center gap-3 text-sm font-black uppercase"><Cookie size={18} strokeWidth={3} /> GESTION_COOKIES_PROTOCOL</h2>
-              <button type="button" className="hover:bg-black hover:text-matrix-green p-1 transition-all" onClick={() => setCookieModalOpen(false)}><X size={20} strokeWidth={3} /></button>
+              <button type="button" className="hover:bg-black hover:text-matrix-green p-1 transition-all" onClick={() => { soundService.playCancel(); setCookieModalOpen(false) }}><X size={20} strokeWidth={3} /></button>
             </Motion.div>
 
             <div className="p-8 max-h-[82vh] overflow-y-auto space-y-6">
@@ -576,7 +582,7 @@ function App() {
               <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!cookieRawText.trim() || cookieSaving} onClick={saveCookies}>
                 {cookieSaving ? 'Guardando...' : 'Guardar MercadoLibre'}
               </button>
-              <button type="button" className="px-6 py-2 border-2 border-matrix-green/30 text-matrix-green/50 font-black uppercase text-xs hover:border-matrix-green hover:text-matrix-green transition-all" onClick={() => setCookieModalOpen(false)}>
+              <button type="button" className="px-6 py-2 border-2 border-matrix-green/30 text-matrix-green/50 font-black uppercase text-xs hover:border-matrix-green hover:text-matrix-green transition-all" onClick={() => { soundService.playCancel(); setCookieModalOpen(false) }}>
                 Cerrar
               </button>
             </Motion.div>
