@@ -113,7 +113,6 @@ export default function GlobalSearchResultsModal({ globalResult, sessionId, onCl
           </button>
           <button
             onClick={() => {
-              soundService.playClick()
               onDownload()
             }}
             className="px-10 py-3 bg-matrix-green text-black font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_30px_rgba(51,255,102,0.4)] flex items-center justify-center gap-3 scale-105"

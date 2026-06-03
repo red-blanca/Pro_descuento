@@ -26,6 +26,7 @@ export default function GlobalSearchView({
   globalRunMs,
   canGlobalSubmit,
   onRun,
+  onAbort,
   onDownload,
   cookieHealth,
   facebookCookieHealth,
@@ -95,14 +96,14 @@ export default function GlobalSearchView({
   }
 
   const handleViewHistoryItem = (entry) => {
-    soundService.playClick()
+    soundService.playAction()
     setModalResult(entry.result || { status: 'done', total_count: entry.totalItems, elapsed_seconds: entry.elapsed_seconds, runs: entry.runs || [] })
     setModalSessionId(entry.id)
     setShowResultsModal(true)
   }
 
   const handleExportEntry = (entry) => {
-    soundService.playClick()
+    soundService.playAction()
     const blob = new Blob([JSON.stringify(entry.result || entry, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
@@ -113,6 +114,7 @@ export default function GlobalSearchView({
   }
 
   const handleModalDownload = () => {
+    soundService.playAction()
     if (modalResult?.items?.length && modalResult !== globalResult) {
       const blob = new Blob([JSON.stringify(modalResult.items, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
@@ -193,6 +195,7 @@ export default function GlobalSearchView({
                         onResetAllCategories={onResetAllCategories}
                         onReapplyCategorySuggestions={onReapplyCategorySuggestions}
                         onStartProcess={handleRun}
+                        onAbort={onAbort}
                         onConfigClick={() => { soundService.playOpen(); setViewMode('MATRIX') }}
                         isProcessing={globalLoading}
                         canGlobalSubmit={canGlobalSubmit}

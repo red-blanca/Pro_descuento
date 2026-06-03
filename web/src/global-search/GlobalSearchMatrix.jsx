@@ -85,7 +85,16 @@ export default function GlobalSearchMatrix({
           </div>
           <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
             <Field label="Búsqueda única" wide>
-              <MatrixInput value={globalForm.query} onChange={(e) => onGlobalChange('query', e.target.value)} />
+              <MatrixInput
+                value={globalForm.query}
+                onChange={(e) => onGlobalChange('query', e.target.value)}
+                onKeyDown={(e) => {
+                  const isCharacterKey = e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete'
+                  if (isCharacterKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                    soundService.playKey()
+                  }
+                }}
+              />
               <GlobalSearchCategoryControls
                 globalForm={globalForm}
                 onGlobalChange={onGlobalChange}

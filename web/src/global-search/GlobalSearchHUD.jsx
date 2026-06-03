@@ -19,6 +19,7 @@ export default function GlobalSearchHUD({
   onResetAllCategories,
   onReapplyCategorySuggestions,
   onStartProcess,
+  onAbort,
   onConfigClick,
   isProcessing,
   canGlobalSubmit,
@@ -115,7 +116,7 @@ export default function GlobalSearchHUD({
               exit={{ scale: 0.5, opacity: 0, rotate: 45 }}
               transition={{ duration: 0.6, type: 'spring' }}
             >
-              <GlobalSearchRadar elapsedSeconds={elapsedSeconds} />
+              <GlobalSearchRadar elapsedSeconds={elapsedSeconds} onStop={onAbort} />
             </Motion.div>
           ) : (
             <Motion.div
@@ -154,6 +155,10 @@ export default function GlobalSearchHUD({
                     autoComplete="off"
                     spellCheck={false}
                     onKeyDown={(event) => {
+                      const isCharacterKey = event.key.length === 1 || event.key === 'Backspace' || event.key === 'Delete'
+                      if (isCharacterKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                        soundService.playKey()
+                      }
                       if (event.key === 'Enter' && canGlobalSubmit && !isProcessing) {
                         soundService.playClick()
                         onStartProcess()

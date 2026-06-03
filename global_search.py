@@ -551,8 +551,15 @@ def run_global_search(
     progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     cfg = build_config(raw_config)
-    if not cfg["query"] and any(source != "descuentosrata" for source in cfg["sources"]):
-        raise ValueError("Debes indicar una busqueda para las fuentes principales.")
+    has_category = any([
+        cfg.get("pulga_category"),
+        cfg.get("knasta_category"),
+        cfg.get("solotodo_category_id"),
+        cfg.get("travel_category_id"),
+        cfg.get("tuganga_categories"),
+    ])
+    if not cfg["query"] and not has_category and any(source != "descuentosrata" for source in cfg["sources"]):
+        raise ValueError("Debes indicar una palabra clave o seleccionar una categoría.")
 
     started = time.perf_counter()
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")

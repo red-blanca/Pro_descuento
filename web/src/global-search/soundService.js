@@ -125,6 +125,42 @@ class SoundService {
     osc.stop(now + duration)
   }
 
+  playKey() {
+    if (!this.enabled) return
+    this.initCtx()
+    if (!this.ctx) return
+    const now = this.ctx.currentTime
+    const noise = this.ctx.createBufferSource()
+    const buffer = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * 0.025), this.ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.008))
+    }
+    const filter = this.ctx.createBiquadFilter()
+    const gain = this.ctx.createGain()
+    filter.type = 'highpass'
+    filter.frequency.setValueAtTime(900, now)
+    gain.gain.setValueAtTime(0.09, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.025)
+    noise.buffer = buffer
+    noise.connect(filter)
+    filter.connect(gain)
+    gain.connect(this.ctx.destination)
+    noise.start(now)
+    noise.stop(now + 0.025)
+
+    const click = this.ctx.createOscillator()
+    const clickGain = this.ctx.createGain()
+    click.type = 'square'
+    click.frequency.setValueAtTime(1800 + Math.random() * 500, now)
+    clickGain.gain.setValueAtTime(0.025, now)
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.018)
+    click.connect(clickGain)
+    clickGain.connect(this.ctx.destination)
+    click.start(now)
+    click.stop(now + 0.018)
+  }
+
   playScan() {
     this.startRadarLoop()
   }
@@ -178,7 +214,7 @@ class SoundService {
 
   playRadarBeep() {
     if (!this.enabled) return
-    if (this.playAsset('/sounds/radar_sms.mp3', 0.22)) return
+    if (this.playAsset('/sounds/radar_9d79.mp3', 0.25)) return
     this.initCtx()
     if (!this.ctx) return
     const now = this.ctx.currentTime
@@ -197,7 +233,7 @@ class SoundService {
 
   startRadarLoop() {
     if (!this.enabled || this.radarAudio) return
-    const audio = this.playAsset('/sounds/radar_sms.mp3', 0.22, { loop: true, retain: true })
+    const audio = this.playAsset('/sounds/radar_9d79.mp3', 0.28, { loop: true, retain: true })
     if (audio && typeof audio !== 'boolean') {
       this.radarAudio = audio
     }

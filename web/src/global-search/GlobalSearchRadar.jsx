@@ -1,8 +1,9 @@
 import { AnimatePresence, motion as Motion } from 'motion/react'
 import { useEffect, useState } from 'react'
+import { OctagonX } from 'lucide-react'
 import { soundService } from './soundService'
 
-export default function GlobalSearchRadar({ elapsedSeconds = 0 }) {
+export default function GlobalSearchRadar({ elapsedSeconds = 0, onStop }) {
   const [dots, setDots] = useState([])
 
   useEffect(() => {
@@ -55,10 +56,21 @@ export default function GlobalSearchRadar({ elapsedSeconds = 0 }) {
         <div className="absolute top-4 left-0 right-0 text-center">
           <span className="text-[10px] font-black text-matrix-green animate-pulse uppercase tracking-[0.2em]">RADAR_SCAN_ACTIVE</span>
         </div>
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center">
           <div className="bg-black/85 border-4 border-matrix-green px-5 py-3 text-center shadow-[0_0_30px_rgba(51,255,102,0.35)]">
             <div className="text-[8px] font-black uppercase tracking-[0.35em] text-matrix-green/55">TIEMPO_TRANSCURRIDO</div>
             <div className="text-5xl font-black tabular-nums text-matrix-green glow-matrix leading-none">{elapsedSeconds}s</div>
+            <button
+              type="button"
+              onClick={() => {
+                soundService.playCancel()
+                onStop?.()
+              }}
+              className="mt-3 inline-flex items-center justify-center gap-2 border-2 border-[#ff3333] bg-black px-4 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-[#ff3333] transition-all hover:bg-[#ff3333] hover:text-black hover:shadow-[0_0_18px_rgba(255,51,51,0.55)]"
+            >
+              <OctagonX size={14} strokeWidth={3} />
+              STOP
+            </button>
           </div>
         </div>
         <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4 text-[8px] font-black text-matrix-green/40">

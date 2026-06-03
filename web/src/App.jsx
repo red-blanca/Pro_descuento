@@ -296,10 +296,26 @@ function App() {
     return { color: 'green', label: 'Facebook listo', icon: 'ok' }
   }, [facebookCookieStatus])
 
-  const canGlobalSubmit = useMemo(
-    () => Boolean(globalForm.query.trim() || (globalForm.sources.length === 1 && globalForm.sources[0] === 'descuentosrata')),
-    [globalForm.query, globalForm.sources],
-  )
+  const canGlobalSubmit = useMemo(() => {
+    const hasQuery = Boolean(globalForm.query.trim())
+    const onlyRata = globalForm.sources.length === 1 && globalForm.sources[0] === 'descuentosrata'
+    const hasCategory = Boolean(
+      globalForm.pulga_category ||
+      globalForm.knasta_category ||
+      globalForm.solotodo_category_id ||
+      globalForm.travel_category_id ||
+      globalForm.tuganga_category
+    )
+    return hasQuery || onlyRata || hasCategory
+  }, [
+    globalForm.query,
+    globalForm.sources,
+    globalForm.pulga_category,
+    globalForm.knasta_category,
+    globalForm.solotodo_category_id,
+    globalForm.travel_category_id,
+    globalForm.tuganga_category,
+  ])
 
   const toggleGlobalSource = (source) => {
     setGlobalForm((prev) => {

@@ -154,8 +154,15 @@ def _run_global_job(job_id: str, raw_config: dict) -> None:
 def global_search_start(payload: GlobalSearchPayload) -> dict:
     raw = payload.model_dump()
     cfg = global_search.build_config(raw)
-    if not cfg["query"] and any(s != "descuentosrata" for s in cfg["sources"]):
-        raise HTTPException(status_code=400, detail="Debes indicar una busqueda para las fuentes principales.")
+    has_category = any([
+        cfg.get("pulga_category"),
+        cfg.get("knasta_category"),
+        cfg.get("solotodo_category_id"),
+        cfg.get("travel_category_id"),
+        cfg.get("tuganga_categories"),
+    ])
+    if not cfg["query"] and not has_category and any(s != "descuentosrata" for s in cfg["sources"]):
+        raise HTTPException(status_code=400, detail="Debes indicar una búsqueda o seleccionar una categoría.")
 
     job_id = uuid.uuid4().hex[:12]
     with _JOBS_LOCK:
