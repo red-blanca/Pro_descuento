@@ -203,11 +203,12 @@ def _descendant_category_ids(category_id: str) -> list[str]:
     return ids
 
 
-def _category_name(category_id: str | None) -> str:
+def _category_name(category_id: str | None, categories_map: dict[str, dict[str, Any]] | None = None) -> str:
     if not category_id:
         return ""
-    categories, _roots = _category_maps()
-    return (categories.get(category_id) or {}).get("displayName") or category_id
+    if categories_map is None:
+        categories_map, _roots = _category_maps()
+    return (categories_map.get(category_id) or {}).get("displayName") or category_id
 
 
 def _build_search_url(query: str = "", offset: int = 0, limit: int = DEFAULT_PAGE_SIZE) -> str:
@@ -274,7 +275,12 @@ def _normalize_search_record(record: dict[str, Any], position: int) -> dict[str,
     }
 
 
-def _normalize_product(item: dict[str, Any], position: int, fallback_category_id: str | None = None) -> dict[str, Any]:
+def _normalize_product(
+    item: dict[str, Any],
+    position: int,
+    fallback_category_id: str | None = None,
+    categories_map: dict[str, dict[str, Any]] | None = None
+) -> dict[str, Any]:
     sku = item.get("id") or item.get("repositoryId") or ""
     normal_raw = _num((item.get("listPrices") or {}).get(PRICE_GROUP) or item.get("listPrice"))
     offer_raw = _num((item.get("salePrices") or {}).get(PRICE_GROUP) or item.get("salePrice") or normal_raw)
@@ -288,7 +294,7 @@ def _normalize_product(item: dict[str, Any], position: int, fallback_category_id
         "id": sku,
         "name": item.get("displayName") or item.get("productDisplayName") or "",
         "brand": item.get("brand") or "",
-        "category": _category_name(category_id),
+        "category": _category_name(category_id, categories_map=categories_map),
         "normal_price": _money(normal_raw),
         "offer_price": _money(offer_raw),
         "normal_price_raw": normal_raw,
@@ -345,54 +351,95 @@ def _collect_search(query: str, limit: int, fetch_all: bool) -> tuple[list[dict[
 
 
 def _collect_category(category_id: str, query: str, limit: int, fetch_all: bool) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    category_ids = _descendant_category_ids(category_id) or [category_id]
+    categories_map, _roots = _category_maps()
+
+    def walk(cid: str, seen_ids: set[str], out_ids: list[str]) -> None:
+        if not cid or cid in seen_ids:
+            return
+        seen_ids.add(cid)
+        out_ids.append(cid)
+        for child in (categories_map.get(cid) or {}).get("childCategories") or []:
+            walk(child.get("id"), seen_ids, out_ids)
+
+    category_ids = []
+    walk(category_id, set(), category_ids)
+    if not category_ids:
+        category_ids = [category_id]
+
     page_size = DEFAULT_PAGE_SIZE
     target = min(10000 if fetch_all else limit, 10000)
     items: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen_skus: set[str] = set()
     total = 0
     pages_fetched = 0
     fetched_raw = 0
 
+    # Parallelize the first page of all categories
+    def fetch_first_page(cid: str) -> tuple[str, dict[str, Any]]:
+        return cid, category_page(cid, 0, page_size)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(20, len(category_ids))) as executor:
+        first_pages = dict(executor.map(fetch_first_page, category_ids))
+
+    # Process first pages and plan further fetches if needed
+    category_extra_tasks = []
+    category_results_map: dict[str, dict[int, list[dict[str, Any]]]] = {}
+
     for cid in category_ids:
-        if len(items) >= target:
-            break
-        first = category_page(cid, 0, min(page_size, max(1, target - len(items))))
+        first = first_pages.get(cid) or {}
         cat_total = int(first.get("totalResults") or 0)
         total += cat_total
+
+        raw_items = first.get("items") or []
+        category_results_map[cid] = {0: raw_items}
         pages_fetched += 1
-        fetched_raw += len(first.get("items") or [])
-        category_items = {0: first.get("items") or []}
-        pages = max(1, math.ceil(min(cat_total, target - len(items)) / page_size))
+        fetched_raw += len(raw_items)
 
-        def fetch(offset: int) -> tuple[int, list[dict[str, Any]]]:
+        if cat_total > page_size:
+            # We only fetch more if we haven't reached a global "reasonable" limit for this pass
+            # But let's keep it simple: fetch up to target for each category if we must.
+            # Actually, to be efficient, we only fetch what we need.
+            # Since we don't know which categories will have what we want,
+            # and we want to be fast, we can parallelize all necessary pages.
+            pages = max(1, math.ceil(min(cat_total, target) / page_size))
+            for page in range(1, pages):
+                category_extra_tasks.append((cid, page * page_size))
+
+    if category_extra_tasks:
+        def fetch_extra(task: tuple[str, int]) -> tuple[str, int, list[dict[str, Any]]]:
+            cid, offset = task
             data = category_page(cid, offset, page_size)
-            return offset, data.get("items") or []
+            return cid, offset, data.get("items") or []
 
-        offsets = [page * page_size for page in range(1, pages)]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(fetch, offset): offset for offset in offsets}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS * 2) as executor:
+            futures = [executor.submit(fetch_extra, task) for task in category_extra_tasks]
             for future in concurrent.futures.as_completed(futures):
-                offset, raw_items = future.result()
-                category_items[offset] = raw_items
+                cid, offset, raw_items = future.result()
+                category_results_map[cid][offset] = raw_items
                 pages_fetched += 1
                 fetched_raw += len(raw_items)
 
-        for offset in sorted(category_items):
-            for raw in category_items[offset]:
-                item = _normalize_product(raw, len(items) + 1, cid)
+    # Normalize and filter
+    query_lc = query.lower() if query else ""
+    for cid in category_ids:
+        results = category_results_map.get(cid) or {}
+        for offset in sorted(results):
+            for raw in results[offset]:
+                item = _normalize_product(raw, len(items) + 1, cid, categories_map=categories_map)
                 sku = item.get("id")
-                if sku and sku in seen:
+                if sku and sku in seen_skus:
                     continue
                 if sku:
-                    seen.add(sku)
-                if query and query.lower() not in item.get("name", "").lower():
+                    seen_skus.add(sku)
+                if query_lc and query_lc not in item.get("name", "").lower():
                     continue
                 items.append(item)
                 if len(items) >= target:
                     break
             if len(items) >= target:
                 break
+        if len(items) >= target:
+            break
 
     return items, {"total": total, "pages_fetched": pages_fetched, "fetched_raw": fetched_raw}
 
