@@ -198,7 +198,7 @@ def global_search_poll(job_id: str) -> dict:
             "status": "running",
             "elapsed_seconds": elapsed,
             "total_count": job.get("total_count", 0),
-            "items": job.get("items", []),
+            "items": [],
             "runs": job.get("runs", []),
         }
 
