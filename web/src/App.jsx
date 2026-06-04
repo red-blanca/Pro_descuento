@@ -9,7 +9,7 @@ function App() {
   const globalAbortRef = useRef(false)
   const [globalForm, setGlobalForm] = useState({
     query: '',
-    scan_scope: 'fast',
+    scan_scope: 'complete',
     max_items_per_source: 10000,
     min_price: 0,
     max_price: 0,

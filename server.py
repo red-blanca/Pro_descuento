@@ -43,7 +43,7 @@ _JOBS_LOCK = threading.Lock()
 class GlobalSearchPayload(BaseModel):
     query: str = Field(default="")
     sources: list[str] = Field(default_factory=lambda: global_search.DEFAULT_SOURCES.copy())
-    scan_scope: str = Field(default="fast")
+    scan_scope: str = Field(default="complete")
     country: str = Field(default="cl")
     max_items_per_source: int = Field(default=10000)
     min_price: int = Field(default=0)
