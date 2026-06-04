@@ -478,14 +478,6 @@ def _run_pcfactory(cfg: dict[str, Any]) -> dict[str, Any]:
         include_words=cfg["include_words"],
         exclude_words=cfg["exclude_words"],
     )
-    items = _filter_words(
-        items,
-        cfg["include_words"],
-        cfg["exclude_words"],
-        strict=cfg.get("strict_mode", False),
-        smart_filter=cfg.get("smart_filter", True),
-        query=cfg["query"]
-    )
     return _source_payload("pcfactory", cfg["query"], items, meta)
 
 

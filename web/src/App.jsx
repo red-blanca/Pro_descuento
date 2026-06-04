@@ -24,6 +24,7 @@ function App() {
       'solotodo',
       'travel',
       'tuganga',
+      'pcfactory',
       'descuentosrata',
     ],
     country: 'cl',
