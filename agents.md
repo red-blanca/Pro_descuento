@@ -14,7 +14,7 @@ La interfaz unica del proyecto es la **busqueda conjunta (global search)**, que 
 
 El sistema combina:
 
-- Scrapers Python por fuente (MercadoLibre, Facebook Marketplace, Pulga, Knasta, SoloTodo, Travel Tienda, TuGanga, DescuentosRata).
+- Scrapers Python por fuente (MercadoLibre, Facebook Marketplace, Pulga, Knasta, SoloTodo, Travel Tienda, TuGanga, DescuentosRata, PcFactory).
 - Un backend FastAPI principal (`server.py`) que expone la API de busqueda global, cookies y categorias.
 - Un frontend React + Vite unico (`web/`) con la experiencia de busqueda conjunta.
 - Exportacion a JSON.
@@ -192,6 +192,7 @@ Fuentes soportadas:
 - `travel`
 - `tuganga`
 - `descuentosrata`
+- `pcfactory`
 
 Flujo:
 
@@ -215,7 +216,7 @@ Campos de configuracion global relevantes:
 - `smart_filter`
 - `sort_price`
 - `include_international`
-- Campos especificos por fuente: `facebook_radius_km`, `pulga_category`, `knasta_retails`, `solotodo_category_id`, `travel_category_id`, `tuganga_stores`, `descuentosrata_all`, etc.
+- Campos especificos por fuente: `facebook_radius_km`, `pulga_category`, `knasta_retails`, `solotodo_category_id`, `travel_category_id`, `tuganga_stores`, `descuentosrata_all`, `pcfactory_word`, etc.
 
 Importante:
 
@@ -308,6 +309,27 @@ Los scrapers viven en carpetas independientes. Ya **no tienen backends HTTP ni f
 - `descuentosrata_api.py`: scraper, `SearchOptions`, `execute_search`.
 - La busqueda global usa `descuentosrata_api.execute_search`.
 - Campos: `descuentosrata_all`, `descuentosrata_limit`.
+
+### PcFactory (`pcfactory_scraper/`)
+
+- `pcfactory.py`: scraper que consulta productos de PcFactory Chile.
+- La busqueda global usa `pcfactory.collect_results(...)` y `pcfactory.apply_filters(...)`.
+- Campos: `pcfactory_word`.
+- **Estado actual (pendiente de reescritura):** La implementacion inicial usa `tuganga_api` como proxy filtrando por tienda `"pcfactory"`. Esto causa discrepancias en la cantidad de resultados (TuGanga no siempre refleja el catalogo real de pcfactory.cl, especialmente con plurales como "notebooks" vs "notebook"). La solucion definitiva es reescribir `pcfactory.py` para consultar directamente la API interna de pcfactory.cl (`https://api.pcfactory.cl/pcfactory-services-catalogo/v1/catalogo/productos/query`) o parsear su HTML de busqueda, sin depender de TuGanga.
+- Este scraper siempre debe ejecutar busqueda completa (todas las paginas disponibles), descargando paginas en paralelo con `ThreadPoolExecutor` para mantener velocidad.
+
+### AliExpress (planificado — `aliexpress_scraper/`)
+
+- **Estado: no implementado aun.** Se planea como futura fuente internacional.
+- Requiere `Playwright` + `playwright-stealth` porque AliExpress esta protegido por Akamai Bot Manager (las peticiones simples con `requests` devuelven 403).
+- Para obtener precios y envios orientados a Chile, se debe inyectar la cookie regional `aep_usuc_f` con valor `site=glo&c_tp=CLP&region=CL&b_locale=es_CL`.
+- Los datos de busqueda se pueden extraer del JSON incrustado en `window.runParams` dentro de tags `<script>` de la pagina de resultados.
+- **Impuestos de internacion a Chile (normativa 2025/2026):**
+  - Compras hasta US$ 500: IVA 19% (cobrado automaticamente por AliExpress al estar inscrito en SII). Arancel aduanero exento (0%).
+  - Compras sobre US$ 500: IVA 19% + Arancel 6% sobre CIF (impuesto compuesto ~26.14%). Costo adicional estimado de internacion courier ~$15.000 CLP.
+  - Ya no existe la franquicia de US$ 41. Todo producto importado paga IVA.
+- Firma esperada: `collect_results(query, limit, scan_scope, max_pages, **kwargs) -> tuple[list[dict], dict]` y `apply_filters(items, min_price, max_price, word, include_words, exclude_words, **kwargs) -> list[dict]`.
+- Cada item debe incluir campos adicionales: `original_price_usd`, `tax_applied_usd` como metadatos de costos de internacion.
 
 > Los archivos `server.py`, `server_http.py`, `run_dev.py` y carpetas `web/` dentro de cada scraper son **legado inactivo**. No borrarlos pero no depender de ellos.
 
@@ -542,6 +564,8 @@ Si el cambio toca UI, validar tambien en navegador local. Si toca scraping real,
 - **Resultados irrelevantes**: revisar `include_words`, `exclude_words`, `strict_mode` y `smart_filter`.
 - **Categoria "todas" en SoloTodo**: no reemplazar `0` por default; `global_search.py` tiene helpers para preservar ese valor.
 - **Produccion no muestra UI**: verificar que `web/dist` exista y que Docker haya corrido `npm ci && npm run build`.
+- **PcFactory devuelve pocos resultados o cantidades incorrectas**: la implementacion actual usa TuGanga como proxy, lo que causa discrepancias (ej. "notebooks" devuelve 2 en TuGanga pero 202 en pcfactory.cl). Pendiente reescritura para consultar directamente la API de pcfactory.cl.
+- **AliExpress bloqueado (403/captcha)**: AliExpress usa Akamai Bot Manager. No se puede scrapear con `requests` simple; requiere Playwright + stealth. Verificar que cookies regionales esten configuradas para Chile.
 
 ---
 
