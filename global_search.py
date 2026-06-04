@@ -567,7 +567,7 @@ def run_global_search(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     by_source: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=min(8, len(cfg["sources"]))) as executor:
+    with ThreadPoolExecutor(max_workers=min(3, len(cfg["sources"]))) as executor:
         futures = {executor.submit(_run_source_timed, source, cfg): source for source in cfg["sources"]}
         for future in as_completed(futures):
             source = futures[future]

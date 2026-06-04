@@ -378,7 +378,7 @@ def _collect_category(category_id: str, query: str, limit: int, fetch_all: bool)
     def fetch_first_page(cid: str) -> tuple[str, dict[str, Any]]:
         return cid, category_page(cid, 0, page_size)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(20, len(category_ids))) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(category_ids))) as executor:
         first_pages = dict(executor.map(fetch_first_page, category_ids))
 
     # Process first pages and plan further fetches if needed
@@ -411,7 +411,7 @@ def _collect_category(category_id: str, query: str, limit: int, fetch_all: bool)
             data = category_page(cid, offset, page_size)
             return cid, offset, data.get("items") or []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS * 2) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(category_extra_tasks))) as executor:
             futures = [executor.submit(fetch_extra, task) for task in category_extra_tasks]
             for future in concurrent.futures.as_completed(futures):
                 cid, offset, raw_items = future.result()
