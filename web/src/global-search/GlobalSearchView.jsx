@@ -52,7 +52,34 @@ export default function GlobalSearchView({
   }, [isSoundEnabled])
 
   useEffect(() => {
-    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 10)))
+    try {
+      sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 10)))
+    } catch (error) {
+      console.warn('No se pudo guardar el historial completo (excedió el límite). Intentando optimizar espacio...', error)
+      try {
+        // Opción 1: Conservar ítems detallados solo para la búsqueda más reciente (index 0)
+        // y limpiar el array de ítems en las búsquedas más antiguas para liberar espacio.
+        const prunedHistory = history.slice(0, 10).map((entry, idx) => {
+          if (idx === 0) return entry
+          return {
+            ...entry,
+            result: entry.result ? { ...entry.result, items: [] } : null
+          }
+        })
+        sessionStorage.setItem(HISTORY_KEY, JSON.stringify(prunedHistory))
+      } catch (innerError) {
+        try {
+          // Opción 2: Si el espacio sigue lleno, remover ítems de todas las búsquedas guardadas
+          const minimalHistory = history.slice(0, 10).map((entry) => ({
+            ...entry,
+            result: entry.result ? { ...entry.result, items: [] } : null
+          }))
+          sessionStorage.setItem(HISTORY_KEY, JSON.stringify(minimalHistory))
+        } catch (finalError) {
+          console.error('No se pudo guardar el historial en sessionStorage:', finalError)
+        }
+      }
+    }
   }, [history])
 
   useEffect(() => {
