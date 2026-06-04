@@ -26,6 +26,7 @@ for module_dir in [
     ROOT / "travel_scraper",
     ROOT / "tuganga_scraper",
     ROOT / "descuentosrata_scraper",
+    ROOT / "pcfactory_scraper",
 ]:
     module_path = str(module_dir)
     if module_path not in sys.path:
@@ -133,6 +134,7 @@ class GlobalSearchPayload(BaseModel):
     tuganga_categories: list[str] = Field(default_factory=list)
     tuganga_only_available: bool = Field(default=False)
     tuganga_sort: str = Field(default="")
+    pcfactory_word: str = Field(default="")
     descuentosrata_all: bool = Field(default=True)
     descuentosrata_limit: int = Field(default=10000)
     strict_mode: bool = Field(default=False)

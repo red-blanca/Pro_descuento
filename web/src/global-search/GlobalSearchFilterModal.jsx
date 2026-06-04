@@ -188,6 +188,14 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
                 <div className="md:col-span-2"><Check label="SOLO_DISPONIBLES" checked={globalForm.tuganga_only_available} onChange={(value) => onGlobalChange('tuganga_only_available', value)} /></div>
               </>
             )}
+            {node.id === 'pcfactory' && (
+              <>
+                <Field label="Palabra obligatoria" wide><TextInput value={globalForm.pcfactory_word} onChange={(e) => onGlobalChange('pcfactory_word', e.target.value)} /></Field>
+                <p className="md:col-span-2 text-[10px] text-matrix-green/60 font-mono italic">
+                  Escaneo realizado a través de pasarela TuGanga.
+                </p>
+              </>
+            )}
             {node.id === 'rata' && (
               <>
                 <Field label="Limite"><TextInput type="number" min="1" max="10000" value={globalForm.descuentosrata_limit} onChange={(e) => onGlobalChange('descuentosrata_limit', Number(e.target.value || 1))} /></Field>

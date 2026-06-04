@@ -33,6 +33,7 @@ for module_dir in [
     ROOT / "travel_scraper",
     ROOT / "tuganga_scraper",
     ROOT / "descuentosrata_scraper",
+    ROOT / "pcfactory_scraper",
 ]:
     module_path = str(module_dir)
     if module_path not in sys.path:
@@ -48,6 +49,7 @@ DEFAULT_SOURCES = [
     "travel",
     "tuganga",
     "descuentosrata",
+    "pcfactory",
 ]
 
 
@@ -460,6 +462,33 @@ def _run_descuentosrata(cfg: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _run_pcfactory(cfg: dict[str, Any]) -> dict[str, Any]:
+    import pcfactory
+
+    items, meta = pcfactory.collect_results(
+        query=cfg["query"],
+        limit=_limit_for(cfg["scan_scope"], cfg["max_items_per_source"], 80),
+        scan_scope=cfg["scan_scope"],
+    )
+    items = pcfactory.apply_filters(
+        items,
+        min_price=cfg["min_price"],
+        max_price=cfg["max_price"],
+        word=cfg["pcfactory_word"],
+        include_words=cfg["include_words"],
+        exclude_words=cfg["exclude_words"],
+    )
+    items = _filter_words(
+        items,
+        cfg["include_words"],
+        cfg["exclude_words"],
+        strict=cfg.get("strict_mode", False),
+        smart_filter=cfg.get("smart_filter", True),
+        query=cfg["query"]
+    )
+    return _source_payload("pcfactory", cfg["query"], items, meta)
+
+
 RUNNERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "mercadolibre": _run_mercadolibre,
     "facebook_marketplace": _run_facebook,
@@ -469,6 +498,7 @@ RUNNERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "travel": _run_travel,
     "tuganga": _run_tuganga,
     "descuentosrata": _run_descuentosrata,
+    "pcfactory": _run_pcfactory,
 }
 
 
@@ -551,6 +581,7 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
         "tuganga_categories": [str(c).strip() for c in raw.get("tuganga_categories", []) if str(c).strip()],
         "tuganga_only_available": bool(raw.get("tuganga_only_available", False)),
         "tuganga_sort": str(raw.get("tuganga_sort") or "").strip(),
+        "pcfactory_word": str(raw.get("pcfactory_word") or "").strip(),
         "descuentosrata_all": bool(raw.get("descuentosrata_all", True)),
         "descuentosrata_limit": max(1, min(int(raw.get("descuentosrata_limit") or 10000), 10000)),
     }
