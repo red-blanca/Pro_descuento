@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import traceback
@@ -12,6 +13,16 @@ from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+MAX_ITEMS_PER_SOURCE_CAP = max(1, _env_int("GLOBAL_MAX_ITEMS_PER_SOURCE", 10000))
 
 for module_dir in [
     ROOT,
@@ -147,7 +158,7 @@ def _filter_words(
 
 def _limit_for(scope: str, max_items: int, fast_default: int) -> int:
     if scope == "complete":
-        return max(1, min(max_items, 10000))
+        return max(1, min(max_items, MAX_ITEMS_PER_SOURCE_CAP, 10000))
     return max(1, min(max_items, fast_default))
 
 
@@ -503,7 +514,7 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
         "sources": sources or DEFAULT_SOURCES,
         "scan_scope": scope,
         "country": str(raw.get("country") or "cl").strip() or "cl",
-        "max_items_per_source": max(1, min(int(raw.get("max_items_per_source") or 10000), 10000)),
+        "max_items_per_source": max(1, min(int(raw.get("max_items_per_source") or 10000), MAX_ITEMS_PER_SOURCE_CAP, 10000)),
         "min_price": max(0, int(raw.get("min_price") or 0)),
         "max_price": max(0, int(raw.get("max_price") or 0)),
         "min_discount": max(0, min(100, int(raw.get("min_discount") or 0))),
@@ -549,6 +560,7 @@ def run_global_search(
     raw_config: dict[str, Any],
     output_base: Path | None = None,
     progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
+    include_by_source: bool = True,
 ) -> dict[str, Any]:
     cfg = build_config(raw_config)
     has_category = any([
@@ -567,6 +579,8 @@ def run_global_search(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     by_source: dict[str, dict[str, Any]] = {}
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
     with ThreadPoolExecutor(max_workers=min(3, len(cfg["sources"]))) as executor:
         futures = {executor.submit(_run_source_timed, source, cfg): source for source in cfg["sources"]}
         for future in as_completed(futures):
@@ -588,23 +602,27 @@ def run_global_search(
             path = output_dir / f"{source}.json"
             path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
             payload["output_file"] = str(path)
-            by_source[source] = payload
             if progress_callback:
                 try:
                     progress_callback(source, payload)
                 except Exception:
                     pass
-
-    merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for source in cfg["sources"]:
-        payload = by_source.get(source, {})
-        for item in payload.get("items") or []:
-            key = f"{source}:{_dedupe_key(item)}"
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append({"source": source, **item})
+            for item in payload.get("items") or []:
+                key = f"{source}:{_dedupe_key(item)}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append({"source": source, **item})
+            by_source[source] = payload if include_by_source else {
+                "source": payload.get("source", source),
+                "query": payload.get("query", cfg["query"]),
+                "ok": payload.get("ok", False),
+                "count": len(payload.get("items") or []),
+                "output_file": payload.get("output_file"),
+                "error": payload.get("error"),
+                "warning": payload.get("warning"),
+                "elapsed_seconds": payload.get("elapsed_seconds", 0),
+            }
 
     all_path = output_dir / "all_results.json"
     all_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
@@ -621,7 +639,7 @@ def run_global_search(
             {
                 "source": source,
                 "ok": by_source[source].get("ok", False),
-                "count": len(by_source[source].get("items") or []),
+                "count": len(by_source[source].get("items") or []) if "items" in by_source[source] else int(by_source[source].get("count") or 0),
                 "output_file": by_source[source].get("output_file"),
                 "error": by_source[source].get("error"),
                 "warning": by_source[source].get("warning"),
@@ -633,8 +651,10 @@ def run_global_search(
     }
     (output_dir / "_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    return {
+    result = {
         **summary,
         "items": merged,
-        "by_source": by_source,
     }
+    if include_by_source:
+        result["by_source"] = by_source
+    return result

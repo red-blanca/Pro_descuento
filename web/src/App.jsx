@@ -345,6 +345,11 @@ function App() {
     try {
       return JSON.parse(text)
     } catch {
+      if (!text.trim() && [502, 503, 504].includes(res.status)) {
+        throw new Error(
+          'Render reinicio el servidor durante la busqueda por limite de recursos. Intenta nuevamente con menos fuentes o menor limite por fuente.',
+        )
+      }
       if (text.trimStart().startsWith('<')) {
         throw new Error(
           res.status === 502

@@ -266,7 +266,7 @@ def collect_browse_results(
     total = first.get("count") or 0
     results_raw = _iter_browse_entries(first.get("results") or [])
 
-    target = total if fetch_all else min(limit, total)
+    target = min(limit, total)
     total_pages = max(1, math.ceil(target / page_size))
 
     items: list[dict[str, Any]] = []

@@ -232,10 +232,10 @@ def _normalize_item(p: dict[str, Any]) -> dict[str, Any]:
 
 def _target_pages(opts: SearchOptions, limit: int, total_pages: int) -> int:
     page_limit = max(1, min(500, int(opts.max_pages or 100)))
-    if opts.scan_scope == "complete":
-        return min(max(1, total_pages), page_limit)
     page_size = 32
     pages_for_limit = max(1, (limit + page_size - 1) // page_size)
+    if opts.scan_scope == "complete":
+        return min(max(1, total_pages), page_limit, pages_for_limit)
     return min(max(1, total_pages), page_limit, pages_for_limit)
 
 

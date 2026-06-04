@@ -40,6 +40,59 @@ _JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+_JOB_TTL_SECONDS = max(60, _env_int("GLOBAL_JOB_TTL_SECONDS", 900))
+_MAX_FINISHED_JOBS = max(1, _env_int("GLOBAL_MAX_FINISHED_JOBS", 3))
+_MAX_CONCURRENT_SEARCHES = max(1, _env_int("GLOBAL_MAX_CONCURRENT_SEARCHES", 1))
+
+
+def _prune_jobs_locked(now: float | None = None) -> None:
+    """Drop old finished jobs so large result sets do not live forever in RAM."""
+    now = now or time.time()
+    expired = [
+        job_id
+        for job_id, job in _JOBS.items()
+        if job.get("status") != "running"
+        and job.get("finished_at")
+        and now - float(job.get("finished_at") or now) > _JOB_TTL_SECONDS
+    ]
+    for job_id in expired:
+        _JOBS.pop(job_id, None)
+
+    finished = [
+        (float(job.get("finished_at") or 0), job_id)
+        for job_id, job in _JOBS.items()
+        if job.get("status") != "running"
+    ]
+    for _finished_at, job_id in sorted(finished, reverse=True)[_MAX_FINISHED_JOBS:]:
+        _JOBS.pop(job_id, None)
+
+
+def _running_jobs_locked() -> int:
+    return sum(1 for job in _JOBS.values() if job.get("status") == "running")
+
+
+def _job_result_for_storage(result: dict) -> dict:
+    """Keep only the fields needed by the API response; by_source duplicates items."""
+    return {
+        "created_at": result.get("created_at"),
+        "query": result.get("query", ""),
+        "scan_scope": result.get("scan_scope", ""),
+        "output_dir": result.get("output_dir"),
+        "all_results_file": result.get("all_results_file"),
+        "total_count": result.get("total_count", 0),
+        "elapsed_seconds": result.get("elapsed_seconds", 0),
+        "runs": result.get("runs", []),
+        "items": result.get("items", []),
+    }
+
+
 class GlobalSearchPayload(BaseModel):
     query: str = Field(default="")
     sources: list[str] = Field(default_factory=lambda: global_search.DEFAULT_SOURCES.copy())
@@ -106,15 +159,9 @@ def _run_global_job(job_id: str, raw_config: dict) -> None:
             job = _JOBS.get(job_id)
             if not job:
                 return
-            if "items" not in job or job["items"] is None:
-                job["items"] = []
             if "runs" not in job or job["runs"] is None:
                 job["runs"] = []
-            
-            source_items = [{"source": source, **item} for item in (payload.get("items") or [])]
-            job["items"] = [item for item in job["items"] if item.get("source") != source]
-            job["items"].extend(source_items)
-            
+
             job["runs"] = [run for run in job["runs"] if run.get("source") != source]
             job["runs"].append({
                 "source": source,
@@ -125,22 +172,25 @@ def _run_global_job(job_id: str, raw_config: dict) -> None:
                 "warning": payload.get("warning"),
                 "elapsed_seconds": payload.get("elapsed_seconds", 0)
             })
-            job["total_count"] = len(job["items"])
+            job["total_count"] = sum(int(run.get("count") or 0) for run in job["runs"])
 
     try:
         with _JOBS_LOCK:
             if job_id in _JOBS:
-                _JOBS[job_id]["items"] = []
                 _JOBS[job_id]["runs"] = []
                 _JOBS[job_id]["total_count"] = 0
 
-        result = global_search.run_global_search(raw_config, progress_callback=progress_callback)
+        result = global_search.run_global_search(
+            raw_config,
+            progress_callback=progress_callback,
+            include_by_source=False,
+        )
+        stored_result = _job_result_for_storage(result)
         with _JOBS_LOCK:
             _JOBS[job_id]["status"] = "done"
-            _JOBS[job_id]["result"] = result
-            _JOBS[job_id]["items"] = result.get("items", [])
-            _JOBS[job_id]["runs"] = result.get("runs", [])
-            _JOBS[job_id]["total_count"] = result.get("total_count", 0)
+            _JOBS[job_id]["result"] = stored_result
+            _JOBS[job_id]["runs"] = stored_result.get("runs", [])
+            _JOBS[job_id]["total_count"] = stored_result.get("total_count", 0)
     except Exception as exc:
         with _JOBS_LOCK:
             _JOBS[job_id]["status"] = "error"
@@ -148,6 +198,7 @@ def _run_global_job(job_id: str, raw_config: dict) -> None:
     finally:
         with _JOBS_LOCK:
             _JOBS[job_id]["finished_at"] = time.time()
+            _prune_jobs_locked()
 
 
 @app.post("/api/global-search")
@@ -166,6 +217,12 @@ def global_search_start(payload: GlobalSearchPayload) -> dict:
 
     job_id = uuid.uuid4().hex[:12]
     with _JOBS_LOCK:
+        _prune_jobs_locked()
+        if _running_jobs_locked() >= _MAX_CONCURRENT_SEARCHES:
+            raise HTTPException(
+                status_code=409,
+                detail="Ya hay una busqueda global en curso. Espera que termine antes de iniciar otra.",
+            )
         _JOBS[job_id] = {
             "status": "running",
             "query": cfg["query"],
@@ -174,7 +231,6 @@ def global_search_start(payload: GlobalSearchPayload) -> dict:
             "finished_at": None,
             "result": None,
             "error": None,
-            "items": [],
             "runs": [],
             "total_count": 0,
         }
@@ -186,6 +242,7 @@ def global_search_start(payload: GlobalSearchPayload) -> dict:
 @app.get("/api/global-search/{job_id}")
 def global_search_poll(job_id: str) -> dict:
     with _JOBS_LOCK:
+        _prune_jobs_locked()
         job = _JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
@@ -214,7 +271,7 @@ def global_search_poll(job_id: str) -> dict:
         "total_count": job.get("total_count") or result.get("total_count", 0),
         "query": result.get("query", job.get("query", "")),
         "scan_scope": result.get("scan_scope", ""),
-        "items": job.get("items") or result.get("items", []),
+        "items": result.get("items", []),
         "runs": runs,
     }
 

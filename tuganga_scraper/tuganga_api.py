@@ -304,7 +304,7 @@ def _target_pages(opts: SearchOptions, limit: int, total_matches: int) -> int:
     available_pages = max(1, (max(total_matches, 1) + PER_PAGE - 1) // PER_PAGE)
     requested_pages = max(1, int(opts.max_pages or pages_for_limit))
     if opts.scan_scope == "complete":
-        target = available_pages
+        target = min(available_pages, pages_for_limit)
     elif _has_local_filters(opts):
         target = max(pages_for_limit, requested_pages)
     else:

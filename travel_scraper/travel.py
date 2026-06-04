@@ -314,7 +314,7 @@ def _collect_search(query: str, limit: int, fetch_all: bool) -> tuple[list[dict[
     page_size = DEFAULT_PAGE_SIZE if fetch_all else min(DEFAULT_PAGE_SIZE, max(1, limit))
     first = search_page(query, 0, page_size)
     records, total = _search_records(first)
-    target = min(total, 10000 if fetch_all else limit)
+    target = min(total, limit, 10000)
 
     pages = max(1, math.ceil(target / page_size))
     page_map: dict[int, list[dict[str, Any]]] = {0: records}
@@ -367,7 +367,7 @@ def _collect_category(category_id: str, query: str, limit: int, fetch_all: bool)
         category_ids = [category_id]
 
     page_size = DEFAULT_PAGE_SIZE
-    target = min(10000 if fetch_all else limit, 10000)
+    target = min(limit, 10000)
     items: list[dict[str, Any]] = []
     seen_skus: set[str] = set()
     total = 0

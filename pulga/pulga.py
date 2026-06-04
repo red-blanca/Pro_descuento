@@ -307,10 +307,10 @@ def collect_results(
     if last_page <= 1:
         if not quiet:
             _progress_done()
-        return (collected if fetch_all else collected[:limit]), total_available
+        return collected[:limit], total_available
 
     # ── Step 2: determine which pages to fetch ──
-    target_last = last_page
+    target_last = min(last_page, max(1, -(-max(1, limit) // PER_PAGE)))
     if max_pages > 0:
         target_last = min(last_page, max_pages)
     if not fetch_all and max_pages <= 0:
@@ -322,7 +322,7 @@ def collect_results(
     if not remaining_pages:
         if not quiet:
             _progress_done()
-        return (collected if fetch_all else collected[:limit]), total_available
+        return collected[:limit], total_available
 
     # ── Step 3: fetch remaining pages concurrently ──
     effective_workers = min(workers, len(remaining_pages))
@@ -357,7 +357,7 @@ def collect_results(
     for idx, item in enumerate(collected, start=1):
         item["position"] = idx
 
-    return (collected if fetch_all else collected[:limit]), total_available
+    return collected[:limit], total_available
 
 
 def apply_filters(

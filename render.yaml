@@ -8,5 +8,13 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: GLOBAL_MAX_CONCURRENT_SEARCHES
+        value: "1"
+      - key: GLOBAL_MAX_FINISHED_JOBS
+        value: "2"
+      - key: GLOBAL_JOB_TTL_SECONDS
+        value: "900"
+      - key: GLOBAL_MAX_ITEMS_PER_SOURCE
+        value: "1500"
       - key: ML_COOKIE
         sync: false
