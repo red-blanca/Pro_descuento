@@ -13,7 +13,7 @@ from typing import Any
 SCRAPER_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRAPER_DIR)
 BASE_URL = os.getenv("ALIEXPRESS_BASE_URL", "https://es.aliexpress.com")
-SEARCH_URL = f"{BASE_URL}/w/wholesale-{{query}}.html"
+SEARCH_URL = f"{BASE_URL}/w/wholesale-query.html"
 COOKIE_VALUE = "site=glo&c_tp=CLP&region=CL&b_locale=es_CL"
 USER_AGENTS = [
     (
@@ -324,16 +324,27 @@ def _product_nodes(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return products
 
 
-def _price_from_node(node: dict[str, Any]) -> tuple[float, str]:
+def _price_from_node(node: dict[str, Any]) -> tuple[float, str, float, float]:
+    """Return selected price, currency, and detected min/max range (raw)."""
     price_info = node.get("priceInfo") if isinstance(node.get("priceInfo"), dict) else {}
     prices = node.get("prices") if isinstance(node.get("prices"), dict) else {}
     sale_price = prices.get("salePrice") if isinstance(prices.get("salePrice"), dict) else {}
     original_price = prices.get("originalPrice") if isinstance(prices.get("originalPrice"), dict) else {}
+
+    # Try to read range if present
+    min_raw = _clean_number(_first_value(sale_price, ("minPrice", "min", "minActivityAmount"))) or _clean_number(_first_value(original_price, ("minPrice", "min")))
+    max_raw = _clean_number(_first_value(sale_price, ("maxPrice", "max", "maxActivityAmount"))) or _clean_number(_first_value(original_price, ("maxPrice", "max")))
+
     for price_dict in (sale_price, original_price):
         parsed = _clean_number(_first_value(price_dict, ("minPrice", "cent", "value", "amount")))
         currency = str(_first_value(price_dict, ("currencyCode", "currency", "symbol")) or "").upper()
         if parsed > 0:
-            return parsed, currency
+            if not min_raw:
+                min_raw = parsed
+            if not max_raw:
+                max_raw = parsed
+            return parsed, currency, float(min_raw or 0.0), float(max_raw or 0.0)
+
     candidates = [
         sale_price.get("formattedPrice"),
         price_info.get("salePrice"),
@@ -346,19 +357,46 @@ def _price_from_node(node: dict[str, Any]) -> tuple[float, str]:
         node.get("price"),
         node.get("formattedPrice"),
     ]
+    currency_guess = ""
     for candidate in candidates:
         if isinstance(candidate, dict):
             amount = _first_value(candidate, ("value", "amount", "minPrice", "salePrice"))
-            currency = str(_first_value(candidate, ("currency", "currencyCode", "symbol")) or "").upper()
+            currency_guess = str(_first_value(candidate, ("currency", "currencyCode", "symbol")) or "").upper()
             parsed = _clean_number(amount)
             if parsed > 0:
-                return parsed, currency
+                if not min_raw:
+                    min_raw = parsed
+                if not max_raw:
+                    max_raw = parsed
+                return parsed, currency_guess, float(min_raw or 0.0), float(max_raw or 0.0)
         parsed = _clean_number(candidate)
         if parsed > 0:
             text = str(candidate or "").upper()
-            currency = "USD" if "US" in text or "USD" in text else ("CLP" if "$" in text or "CLP" in text else "")
-            return parsed, currency
-    return 0.0, ""
+            currency_guess = "USD" if "US" in text or "USD" in text else ("CLP" if "$" in text or "CLP" in text else "")
+            if not min_raw:
+                min_raw = parsed
+            if not max_raw:
+                max_raw = parsed
+            return parsed, currency_guess, float(min_raw or 0.0), float(max_raw or 0.0)
+    return 0.0, "", float(min_raw or 0.0), float(max_raw or 0.0)
+
+
+def _parse_number_from_text(text: str) -> float:
+    text = (text or "").strip()
+    if not text:
+        return 0.0
+    # Try CLP first (large numbers), else generic decimal
+    m = re.search(r"\$\s*([\d\.]{3,})", text)
+    if m:
+        digits = m.group(1).replace(".", "")
+        try:
+            return float(digits)
+        except Exception:
+            pass
+    m = re.search(r"([\d][\d\.,]*)", text)
+    if m:
+        return _clean_number(m.group(1))
+    return 0.0
 
 
 def _shipping_from_node(node: dict[str, Any], currency: str) -> float:
@@ -379,6 +417,10 @@ def _shipping_from_node(node: dict[str, Any], currency: str) -> float:
     shipping_text = " ".join(str(v) for v in shipping.values()) if shipping else str(node.get("shippingText") or "")
     if re.search(r"free|gratis|env[ií]o\s+gratis", shipping_text, flags=re.IGNORECASE):
         return 0.0
+    # Try to parse a number from text like "$ 12.990" or "US $2.54"
+    parsed_from_text = _parse_number_from_text(shipping_text)
+    if parsed_from_text > 0:
+        return parsed_from_text
     return 0.0
 
 
@@ -530,7 +572,7 @@ def _parse_cookie_file(path: str) -> list[dict[str, Any]]:
             cookies.append(cookie)
         return cookies
 
-    for line in raw.splitlines():
+    for line in raw splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -580,6 +622,18 @@ def _discount_from_node(node: dict[str, Any]) -> int:
     return max(0, min(100, int(round(parsed))))
 
 
+_VARIANT_TIER_KEYWORDS = (
+    "pro", "max", "ultra", "plus", "kit", "bundle", "x2", "x3", "with battery", "full set",
+)
+
+
+def _variant_suspected(title: str, min_price: float, max_price: float) -> bool:
+    if max_price and min_price and max_price > min_price * 1.25:
+        return True
+    low = (title or "").lower()
+    return any(kw in low for kw in _VARIANT_TIER_KEYWORDS)
+
+
 def _normalize_product(
     node: dict[str, Any],
     position: int,
@@ -591,10 +645,12 @@ def _normalize_product(
     if isinstance(title_value, dict):
         title_value = _first_value(title_value, ("displayTitle", "seoTitle", "title", "text"))
     title = str(title_value or "").strip()
-    price, currency = _price_from_node(node)
+
+    price_selected, currency, min_raw, max_raw = _price_from_node(node)
     shipping = _shipping_from_node(node, currency)
-    display_total = price + shipping
+    display_total = price_selected + shipping
     cost = _calculate_chile_cost(display_total, currency, usd_clp_rate, price_includes_chile_vat)
+
     url = _absolute_url(_first_value(node, ("productDetailUrl", "productUrl", "url", "link")))
     if not url and product_id:
         url = f"{BASE_URL}/item/{product_id}.html"
@@ -605,6 +661,9 @@ def _normalize_product(
     image = _absolute_url(image_value)
     brand = _first_value(node, ("brand", "brandName"))
     category = _first_value(node, ("category", "categoryName"))
+
+    has_range = bool(max_raw and min_raw and abs(max_raw - min_raw) > 0.001)
+    suspected_variant = _variant_suspected(title, min_raw or price_selected, max_raw or price_selected)
 
     return {
         "id": f"aliexpress#{product_id}",
@@ -619,18 +678,27 @@ def _normalize_product(
         "brand": str(brand).strip() if brand else None,
         "category": str(category).strip() if category else None,
         "discount_percent": _discount_from_node(node),
+        # Raw display/variant signals
+        "display_price_raw": price_selected,
+        "display_currency": currency or "CLP",
+        "shipping_raw": shipping,
+        "price_min_raw": float(min_raw or 0.0),
+        "price_max_raw": float(max_raw or 0.0),
+        "has_price_range": has_range,
+        "variant_suspected": suspected_variant,
+        # Chile cost breakdown
         "original_price_usd": float(cost["original_price_usd"]),
         "tax_applied_usd": float(cost["tax_applied_usd"]),
         "final_price_usd": float(cost["final_price_usd"]),
-        "display_price_raw": price,
-        "display_currency": currency or "CLP",
-        "shipping_raw": shipping,
         "duty_applied_usd": float(cost["duty_applied_usd"]),
         "iva_applied_usd": float(cost["iva_applied_usd"]),
         "handling_fee_usd": float(cost["handling_fee_usd"]),
         "over_usd_500": bool(cost["over_usd_500"]),
+        # Meta
         "position": position,
         "source": "aliexpress",
+        "region": "CL",
+        "currency_context": "CLP",
     }
 
 
@@ -727,7 +795,8 @@ def collect_results(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
     Realiza busquedas en AliExpress simulando navegacion a Chile.
-    Calcula los precios con impuestos incluidos segun las reglas aduaneras chilenas.
+    Calcula los precios con impuestos incluidos (IVA 19%, derechos si aplica) y trata de inferir
+    si hay rango de precios por variantes.
     Retorna la lista de productos normalizada y metadatos.
     """
     started = time.perf_counter()
@@ -801,6 +870,8 @@ def collect_results(
         "effective_query": effective_query,
         "usd_clp_rate": usd_clp_rate,
         "price_includes_chile_vat": price_includes_chile_vat,
+        "region": "CL",
+        "currency_context": "CLP",
         "elapsed_seconds": round(time.perf_counter() - started, 2),
     }
     if errors:
