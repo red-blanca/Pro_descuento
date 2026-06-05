@@ -25,6 +25,7 @@ function App() {
       'travel',
       'tuganga',
       'pcfactory',
+      'aliexpress',
       'descuentosrata',
     ],
     country: 'cl',
@@ -57,6 +58,9 @@ function App() {
     tuganga_category: '',
     tuganga_only_available: false,
     tuganga_sort: '',
+    pcfactory_word: '',
+    aliexpress_word: '',
+    aliexpress_price_includes_chile_vat: true,
     descuentosrata_all: true,
     descuentosrata_limit: 10000,
     strict_mode: false,
@@ -78,6 +82,7 @@ function App() {
   const [categorySuggestion, setCategorySuggestion] = useState(null)
   const lastAppliedQueryRef = useRef('')
   const [cookieModalOpen, setCookieModalOpen] = useState(false)
+  const [cookieTab, setCookieTab] = useState('mercadolibre')
   const [cookieRawText, setCookieRawText] = useState('')
   const [cookieStatus, setCookieStatus] = useState(null)
   const [cookieSaving, setCookieSaving] = useState(false)
@@ -87,6 +92,10 @@ function App() {
   const [facebookCookieRawText, setFacebookCookieRawText] = useState('')
   const [facebookCookieSaving, setFacebookCookieSaving] = useState(false)
   const [facebookCookieMsg, setFacebookCookieMsg] = useState('')
+  const [aliexpressCookieStatus, setAliexpressCookieStatus] = useState(null)
+  const [aliexpressCookieRawText, setAliexpressCookieRawText] = useState('')
+  const [aliexpressCookieSaving, setAliexpressCookieSaving] = useState(false)
+  const [aliexpressCookieMsg, setAliexpressCookieMsg] = useState('')
 
   const fetchCookieStatus = async () => {
     try {
@@ -106,9 +115,19 @@ function App() {
     }
   }
 
+  const fetchAliexpressCookieStatus = async () => {
+    try {
+      const res = await fetch('/api/aliexpress-cookies/status')
+      if (res.ok) setAliexpressCookieStatus(await res.json())
+    } catch {
+      // optional
+    }
+  }
+
   useEffect(() => {
     fetchCookieStatus()
     fetchFacebookCookieStatus()
+    fetchAliexpressCookieStatus()
   }, [])
 
   const applySuggestedCategories = useCallback((suggested, query) => {
@@ -275,6 +294,38 @@ function App() {
     }
   }
 
+  const saveAliexpressCookies = async () => {
+    if (!aliexpressCookieRawText.trim()) return
+    soundService.playAction()
+    setAliexpressCookieSaving(true)
+    setAliexpressCookieMsg('')
+    try {
+      const res = await fetch('/api/aliexpress-cookies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_text: aliexpressCookieRawText }),
+      })
+      if (!res.ok) {
+        let errorMsg = 'Error guardando cookies de AliExpress'
+        try {
+          const data = await res.json()
+          errorMsg = data.detail || errorMsg
+        } catch {
+          // ignore
+        }
+        throw new Error(errorMsg)
+      }
+      const data = await res.json()
+      setAliexpressCookieMsg(`${data.cookie_count} cookies guardadas para AliExpress`)
+      setAliexpressCookieRawText('')
+      await fetchAliexpressCookieStatus()
+    } catch (err) {
+      setAliexpressCookieMsg(err.message)
+    } finally {
+      setAliexpressCookieSaving(false)
+    }
+  }
+
   const cookieHealth = useMemo(() => {
     if (!cookieStatus || !cookieStatus.exists || cookieStatus.cookie_count === 0) {
       return { color: 'red', label: 'Sin cookies', icon: 'x' }
@@ -296,6 +347,17 @@ function App() {
     }
     return { color: 'green', label: 'Facebook listo', icon: 'ok' }
   }, [facebookCookieStatus])
+
+  const aliexpressCookieHealth = useMemo(() => {
+    if (!aliexpressCookieStatus || !aliexpressCookieStatus.exists || aliexpressCookieStatus.cookie_count === 0) {
+      return { color: 'red', label: 'AliExpress sin cookies', icon: 'x' }
+    }
+    const age = aliexpressCookieStatus.age_minutes ?? 9999
+    if (!aliexpressCookieStatus.valid || age > 180) {
+      return { color: 'yellow', label: `AliExpress ${Math.round(age)}min - revisar`, icon: 'warn' }
+    }
+    return { color: 'green', label: `AliExpress ${Math.round(age)}min - listo`, icon: 'ok' }
+  }, [aliexpressCookieStatus])
 
   const canGlobalSubmit = useMemo(() => {
     const hasQuery = Boolean(globalForm.query.trim())
@@ -508,106 +570,134 @@ function App() {
         onOpenCookieModal={() => {
           setCookieMsg('')
           setFacebookCookieMsg('')
+          setAliexpressCookieMsg('')
           setCookieModalOpen(true)
+          fetchCookieStatus()
+          fetchFacebookCookieStatus()
+          fetchAliexpressCookieStatus()
         }}
       />
 
       {cookieModalOpen && (
         <Motion.div className="gs-matrix-root fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm font-mono text-matrix-green" onClick={() => { soundService.playCancel(); setCookieModalOpen(false) }}>
-          <div className="w-full max-w-2xl border-4 border-matrix-green bg-black shadow-[0_0_50px_rgba(51,255,102,0.2)] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-3xl border-4 border-matrix-green bg-black shadow-[0_0_50px_rgba(51,255,102,0.2)] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <Motion.div className="bg-matrix-green text-black px-4 py-2 flex items-center justify-between font-black uppercase tracking-widest">
               <h2 className="flex items-center gap-3 text-sm font-black uppercase"><Cookie size={18} strokeWidth={3} /> GESTION_COOKIES_PROTOCOL</h2>
               <button type="button" className="hover:bg-black hover:text-matrix-green p-1 transition-all" onClick={() => { soundService.playCancel(); setCookieModalOpen(false) }}><X size={20} strokeWidth={3} /></button>
             </Motion.div>
 
-            <div className="p-8 max-h-[82vh] overflow-y-auto space-y-6">
-              {cookieStatus && cookieStatus.exists ? (
-                <div className={`flex items-start gap-3 p-3 border-2 bg-black text-[10px] uppercase ${cookieHealth.color === 'green' ? 'border-matrix-green text-matrix-green' : cookieHealth.color === 'yellow' ? 'border-yellow-300 text-yellow-300' : 'border-[#ff3333] text-[#ff3333]'}`}>
-                  {cookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
-                  {cookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
-                  {cookieHealth.icon === 'x' && <ShieldX size={16} />}
-                  <div>
-                    <div className="font-black tracking-widest">{cookieStatus.cookie_count} cookies guardadas</div>
-                    <div className="opacity-70">
-                      Ultima actualizacion: {cookieStatus.age_minutes != null ? `hace ${Math.round(cookieStatus.age_minutes)} min` : 'desconocida'}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-start gap-3 p-3 border-2 border-[#ff3333] bg-black text-[#ff3333] text-[10px] uppercase">
-                  <ShieldX size={16} />
-                  <div>
-                    <div className="font-black tracking-widest">No hay cookies guardadas</div>
-                    <div className="opacity-70">Pega las cookies de MercadoLibre abajo</div>
-                  </div>
-                </div>
-              )}
+            <div className="flex border-b-2 border-matrix-green">
+              {[
+                ['mercadolibre', 'MercadoLibre'],
+                ['facebook', 'Facebook'],
+                ['aliexpress', 'AliExpress'],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest border-r border-matrix-green/40 transition-all ${cookieTab === id ? 'bg-matrix-green text-black' : 'bg-black text-matrix-green/60 hover:text-matrix-green hover:bg-matrix-green/10'}`}
+                  onClick={() => { soundService.playClick(); setCookieTab(id) }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            <Motion.div className="mx-8 mb-6 border-2 border-matrix-green/30 bg-matrix-green/5 p-4 text-[10px] uppercase leading-relaxed text-matrix-green/60">
-              <p className="mb-2 font-black text-matrix-green"><strong>Como obtener cookies:</strong></p>
-              <ol className="list-decimal pl-5 space-y-1">
-                <li>Abre <a className="text-matrix-green underline" href="https://www.mercadolibre.cl" target="_blank" rel="noreferrer">mercadolibre.cl</a> e inicia sesion</li>
-                <li>Presiona F12 - Application - Cookies</li>
-                <li>Selecciona todas las filas (Ctrl+A) y copia (Ctrl+C)</li>
-                <li>Pega aqui abajo</li>
-              </ol>
-            </Motion.div>
-
-            <textarea
-              className="mx-8 mb-6 block w-[calc(100%-4rem)] min-h-[140px] bg-black border-2 border-matrix-green p-3 text-xs font-black text-matrix-green outline-none resize-y focus:bg-matrix-green/10"
-              placeholder="Pega las cookies de MercadoLibre aqui..."
-              value={cookieRawText}
-              onChange={(e) => setCookieRawText(e.target.value)}
-              rows={10}
-            />
-
-            {cookieMsg && <Motion.div className="mx-8 mb-6 border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green">{cookieMsg}</Motion.div>}
-
-            <Motion.div className="mx-8 mb-6">
-              <Motion.div className={`flex items-start gap-3 p-3 border-2 bg-black text-[10px] uppercase ${facebookCookieHealth.color === 'green' ? 'border-matrix-green text-matrix-green' : facebookCookieHealth.color === 'yellow' ? 'border-yellow-300 text-yellow-300' : 'border-[#ff3333] text-[#ff3333]'}`}>
-                {facebookCookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
-                {facebookCookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
-                {facebookCookieHealth.icon === 'x' && <ShieldX size={16} />}
-                <div>
-                  <div className="font-black tracking-widest">Facebook Marketplace</div>
-                  <div className="opacity-70">
-                    Curico: {facebookCookieStatus?.profiles?.curico?.valid ? 'OK' : 'pendiente'} | Talca:{' '}
-                    {facebookCookieStatus?.profiles?.talca?.valid ? 'OK' : 'pendiente'}
+            <div className="p-8 max-h-[76vh] overflow-y-auto space-y-6">
+              {cookieTab === 'mercadolibre' && (
+                <>
+                  <div className={`flex items-start gap-3 p-3 border-2 bg-black text-[10px] uppercase ${cookieHealth.color === 'green' ? 'border-matrix-green text-matrix-green' : cookieHealth.color === 'yellow' ? 'border-yellow-300 text-yellow-300' : 'border-[#ff3333] text-[#ff3333]'}`}>
+                    {cookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
+                    {cookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
+                    {cookieHealth.icon === 'x' && <ShieldX size={16} />}
+                    <div>
+                      <div className="font-black tracking-widest">{cookieStatus?.cookie_count || 0} cookies MercadoLibre</div>
+                      <div className="opacity-70">Actualizacion: {cookieStatus?.age_minutes != null ? `hace ${Math.round(cookieStatus.age_minutes)} min` : 'desconocida'}</div>
+                    </div>
                   </div>
-                </div>
-              </Motion.div>
-            </Motion.div>
+                  <div className="border-2 border-matrix-green/30 bg-matrix-green/5 p-4 text-[10px] uppercase leading-relaxed text-matrix-green/60">
+                    <p className="mb-2 font-black text-matrix-green">Como obtener cookies:</p>
+                    <ol className="list-decimal pl-5 space-y-1">
+                      <li>Abre mercadolibre.cl e inicia sesion</li>
+                      <li>Presiona F12 - Application - Cookies</li>
+                      <li>Selecciona las filas y copia</li>
+                      <li>Pega aqui abajo</li>
+                    </ol>
+                  </div>
+                  <textarea className="block w-full min-h-[170px] bg-black border-2 border-matrix-green p-3 text-xs font-black text-matrix-green outline-none resize-y focus:bg-matrix-green/10" placeholder="Pega las cookies de MercadoLibre aqui..." value={cookieRawText} onChange={(e) => setCookieRawText(e.target.value)} rows={10} />
+                  {cookieMsg && <div className="border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green">{cookieMsg}</div>}
+                  <div className="flex justify-end">
+                    <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!cookieRawText.trim() || cookieSaving} onClick={saveCookies}>
+                      {cookieSaving ? 'Guardando...' : 'Guardar MercadoLibre'}
+                    </button>
+                  </div>
+                </>
+              )}
 
-            <label className="mx-8 mb-6 block space-y-1">
-              <span className="block text-[10px] font-black text-matrix-green/40 uppercase tracking-widest">Perfil Facebook</span>
-              <select className="w-full bg-black border-2 border-matrix-green p-2 text-xs font-black text-matrix-green outline-none uppercase" value={facebookCookieProfile} onChange={(e) => setFacebookCookieProfile(e.target.value)}>
-                <option value="curico">Curico</option>
-                <option value="talca">Talca</option>
-              </select>
-            </label>
+              {cookieTab === 'facebook' && (
+                <>
+                  <div className={`flex items-start gap-3 p-3 border-2 bg-black text-[10px] uppercase ${facebookCookieHealth.color === 'green' ? 'border-matrix-green text-matrix-green' : facebookCookieHealth.color === 'yellow' ? 'border-yellow-300 text-yellow-300' : 'border-[#ff3333] text-[#ff3333]'}`}>
+                    {facebookCookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
+                    {facebookCookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
+                    {facebookCookieHealth.icon === 'x' && <ShieldX size={16} />}
+                    <div>
+                      <div className="font-black tracking-widest">Facebook Marketplace</div>
+                      <div className="opacity-70">Curico: {facebookCookieStatus?.profiles?.curico?.valid ? 'OK' : 'pendiente'} | Talca: {facebookCookieStatus?.profiles?.talca?.valid ? 'OK' : 'pendiente'}</div>
+                    </div>
+                  </div>
+                  <label className="block space-y-1">
+                    <span className="block text-[10px] font-black text-matrix-green/40 uppercase tracking-widest">Perfil Facebook</span>
+                    <select className="w-full bg-black border-2 border-matrix-green p-2 text-xs font-black text-matrix-green outline-none uppercase" value={facebookCookieProfile} onChange={(e) => setFacebookCookieProfile(e.target.value)}>
+                      <option value="curico">Curico</option>
+                      <option value="talca">Talca</option>
+                    </select>
+                  </label>
+                  <textarea className="block w-full min-h-[170px] bg-black border-2 border-matrix-green p-3 text-xs font-black text-matrix-green outline-none resize-y focus:bg-matrix-green/10" placeholder="Pega cookies de Facebook aqui..." value={facebookCookieRawText} onChange={(e) => setFacebookCookieRawText(e.target.value)} rows={10} />
+                  {facebookCookieMsg && <div className="border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green">{facebookCookieMsg}</div>}
+                  <div className="flex justify-end">
+                    <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!facebookCookieRawText.trim() || facebookCookieSaving} onClick={saveFacebookCookies}>
+                      {facebookCookieSaving ? 'Guardando...' : 'Guardar Facebook'}
+                    </button>
+                  </div>
+                </>
+              )}
 
-            <textarea
-              className="mx-8 mb-6 block w-[calc(100%-4rem)] min-h-[140px] bg-black border-2 border-matrix-green p-3 text-xs font-black text-matrix-green outline-none resize-y focus:bg-matrix-green/10"
-              placeholder="Pega cookies de Facebook aqui..."
-              value={facebookCookieRawText}
-              onChange={(e) => setFacebookCookieRawText(e.target.value)}
-              rows={8}
-            />
+              {cookieTab === 'aliexpress' && (
+                <>
+                  <div className={`flex items-start gap-3 p-3 border-2 bg-black text-[10px] uppercase ${aliexpressCookieHealth.color === 'green' ? 'border-matrix-green text-matrix-green' : aliexpressCookieHealth.color === 'yellow' ? 'border-yellow-300 text-yellow-300' : 'border-[#ff3333] text-[#ff3333]'}`}>
+                    {aliexpressCookieHealth.icon === 'ok' && <ShieldCheck size={16} />}
+                    {aliexpressCookieHealth.icon === 'warn' && <ShieldAlert size={16} />}
+                    {aliexpressCookieHealth.icon === 'x' && <ShieldX size={16} />}
+                    <div>
+                      <div className="font-black tracking-widest">{aliexpressCookieStatus?.cookie_count || 0} cookies AliExpress</div>
+                      <div className="opacity-70">Criticas: {(aliexpressCookieStatus?.essential_found || []).join(', ') || 'ninguna'}</div>
+                    </div>
+                  </div>
+                  <div className="border-2 border-matrix-green/30 bg-matrix-green/5 p-4 text-[10px] uppercase leading-relaxed text-matrix-green/60">
+                    <p className="mb-2 font-black text-matrix-green">Como obtener cookies AliExpress:</p>
+                    <ol className="list-decimal pl-5 space-y-1">
+                      <li>Abre es.aliexpress.com y realiza una busqueda real</li>
+                      <li>Si aparece verificacion, resuelvela en el navegador</li>
+                      <li>Copia las cookies desde Application - Cookies</li>
+                      <li>Pega aqui el formato tabla de DevTools</li>
+                    </ol>
+                  </div>
+                  <textarea className="block w-full min-h-[170px] bg-black border-2 border-matrix-green p-3 text-xs font-black text-matrix-green outline-none resize-y focus:bg-matrix-green/10" placeholder="Pega cookies de AliExpress aqui..." value={aliexpressCookieRawText} onChange={(e) => setAliexpressCookieRawText(e.target.value)} rows={10} />
+                  {aliexpressCookieMsg && <div className="border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green">{aliexpressCookieMsg}</div>}
+                  <div className="flex justify-end">
+                    <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!aliexpressCookieRawText.trim() || aliexpressCookieSaving} onClick={saveAliexpressCookies}>
+                      {aliexpressCookieSaving ? 'Guardando...' : 'Guardar AliExpress'}
+                    </button>
+                  </div>
+                </>
+              )}
 
-            {facebookCookieMsg && <Motion.div className="mx-8 mb-6 border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green">{facebookCookieMsg}</Motion.div>}
-
-            <Motion.div className="mx-8 mb-8 mt-12 flex justify-end gap-4">
-              <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!facebookCookieRawText.trim() || facebookCookieSaving} onClick={saveFacebookCookies}>
-                {facebookCookieSaving ? 'Guardando...' : 'Guardar Facebook'}
-              </button>
-              <button type="button" className="px-8 py-2 bg-matrix-green text-black font-black uppercase text-xs hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(51,255,102,0.3)]" disabled={!cookieRawText.trim() || cookieSaving} onClick={saveCookies}>
-                {cookieSaving ? 'Guardando...' : 'Guardar MercadoLibre'}
-              </button>
+              <div className="flex justify-end pt-4 border-t border-matrix-green/20">
               <button type="button" className="px-6 py-2 border-2 border-matrix-green/30 text-matrix-green/50 font-black uppercase text-xs hover:border-matrix-green hover:text-matrix-green transition-all" onClick={() => { soundService.playCancel(); setCookieModalOpen(false) }}>
                 Cerrar
               </button>
-            </Motion.div>
+              </div>
+            </div>
           </div>
         </Motion.div>
       )}

@@ -34,6 +34,7 @@ for module_dir in [
     ROOT / "tuganga_scraper",
     ROOT / "descuentosrata_scraper",
     ROOT / "pcfactory_scraper",
+    ROOT / "aliexpress_scraper",
 ]:
     module_path = str(module_dir)
     if module_path not in sys.path:
@@ -50,6 +51,7 @@ DEFAULT_SOURCES = [
     "tuganga",
     "descuentosrata",
     "pcfactory",
+    "aliexpress",
 ]
 
 
@@ -481,6 +483,35 @@ def _run_pcfactory(cfg: dict[str, Any]) -> dict[str, Any]:
     return _source_payload("pcfactory", cfg["query"], items, meta)
 
 
+def _run_aliexpress(cfg: dict[str, Any]) -> dict[str, Any]:
+    import aliexpress
+
+    items, meta = aliexpress.collect_results(
+        query=cfg["query"],
+        limit=_limit_for(cfg["scan_scope"], cfg["max_items_per_source"], 40),
+        scan_scope=cfg["scan_scope"],
+        max_pages=10 if cfg["scan_scope"] == "complete" else 1,
+        price_includes_chile_vat=cfg["aliexpress_price_includes_chile_vat"],
+    )
+    items = aliexpress.apply_filters(
+        items,
+        min_price=cfg["min_price"],
+        max_price=cfg["max_price"],
+        word=cfg["aliexpress_word"],
+        include_words=cfg["include_words"],
+        exclude_words=cfg["exclude_words"],
+    )
+    items = _filter_words(
+        items,
+        cfg["include_words"],
+        cfg["exclude_words"],
+        strict=cfg.get("strict_mode", False),
+        smart_filter=cfg.get("smart_filter", True),
+        query=cfg["query"],
+    )
+    return _source_payload("aliexpress", cfg["query"], items, meta)
+
+
 RUNNERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "mercadolibre": _run_mercadolibre,
     "facebook_marketplace": _run_facebook,
@@ -491,6 +522,7 @@ RUNNERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "tuganga": _run_tuganga,
     "descuentosrata": _run_descuentosrata,
     "pcfactory": _run_pcfactory,
+    "aliexpress": _run_aliexpress,
 }
 
 
@@ -574,6 +606,8 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
         "tuganga_only_available": bool(raw.get("tuganga_only_available", False)),
         "tuganga_sort": str(raw.get("tuganga_sort") or "").strip(),
         "pcfactory_word": str(raw.get("pcfactory_word") or "").strip(),
+        "aliexpress_word": str(raw.get("aliexpress_word") or "").strip(),
+        "aliexpress_price_includes_chile_vat": bool(raw.get("aliexpress_price_includes_chile_vat", True)),
         "descuentosrata_all": bool(raw.get("descuentosrata_all", True)),
         "descuentosrata_limit": max(1, min(int(raw.get("descuentosrata_limit") or 10000), 10000)),
     }

@@ -5,3 +5,5 @@ __pycache__/
 exports/
 .dev_logs/
 .vercel
+aliexpress_cookies.txt
+aliexpress_scraper/aliexpress_cookies.txt

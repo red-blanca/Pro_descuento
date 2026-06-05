@@ -27,6 +27,7 @@ for module_dir in [
     ROOT / "tuganga_scraper",
     ROOT / "descuentosrata_scraper",
     ROOT / "pcfactory_scraper",
+    ROOT / "aliexpress_scraper",
 ]:
     module_path = str(module_dir)
     if module_path not in sys.path:
@@ -135,6 +136,8 @@ class GlobalSearchPayload(BaseModel):
     tuganga_only_available: bool = Field(default=False)
     tuganga_sort: str = Field(default="")
     pcfactory_word: str = Field(default="")
+    aliexpress_word: str = Field(default="")
+    aliexpress_price_includes_chile_vat: bool = Field(default=True)
     descuentosrata_all: bool = Field(default=True)
     descuentosrata_limit: int = Field(default=10000)
     strict_mode: bool = Field(default=False)
@@ -465,6 +468,15 @@ def _facebook_profile_status(profile_name: str, cookies: dict[str, str]) -> dict
     }
 
 
+def _file_age_status(path: Path) -> tuple[str | None, float | None, int]:
+    if not path.exists():
+        return None, None, 0
+    stat = path.stat()
+    mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+    age_minutes = round((datetime.now(tz=timezone.utc) - mtime).total_seconds() / 60, 1)
+    return mtime.isoformat(), age_minutes, stat.st_size
+
+
 @app.post("/api/cookies")
 def save_cookies(payload: CookiePayload) -> dict:
     raw = payload.raw_text.strip()
@@ -577,6 +589,80 @@ def facebook_cookies_status() -> dict:
         "all_valid": all_valid,
         "profiles": profile_statuses,
         "message": "Perfiles listos." if all_valid else "Faltan cookies validas en uno o mas perfiles.",
+    }
+
+
+@app.post("/api/aliexpress-cookies")
+def save_aliexpress_cookies(payload: CookiePayload) -> dict:
+    raw = payload.raw_text.strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="No se proporciono texto de cookies.")
+
+    cookie_path = ROOT / "aliexpress_scraper" / "aliexpress_cookies.txt"
+    cookie_path.parent.mkdir(parents=True, exist_ok=True)
+    cookie_path.write_text(raw, encoding="utf-8")
+
+    try:
+        import aliexpress
+
+        cookies = aliexpress._load_cookies(str(cookie_path))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"No se pudieron leer cookies AliExpress: {exc}") from exc
+
+    if not cookies:
+        raise HTTPException(status_code=400, detail="No se encontraron cookies validas en el texto proporcionado.")
+
+    names = [str(cookie.get("name") or "") for cookie in cookies if cookie.get("name")]
+    return {
+        "success": True,
+        "cookie_count": len(names),
+        "cookie_names": names,
+        "file": str(cookie_path),
+    }
+
+
+@app.get("/api/aliexpress-cookies/status")
+def aliexpress_cookies_status() -> dict:
+    cookie_path = ROOT / "aliexpress_scraper" / "aliexpress_cookies.txt"
+    if not cookie_path.exists():
+        return {
+            "exists": False,
+            "cookie_count": 0,
+            "cookie_names": [],
+            "essential_found": [],
+            "essential_missing": ["_m_h5_tk", "_m_h5_tk_enc", "aep_usuc_f", "cna", "isg"],
+            "file_size": 0,
+            "last_modified": None,
+            "age_minutes": None,
+        }
+
+    try:
+        import aliexpress
+
+        cookies = aliexpress._load_cookies(str(cookie_path))
+    except Exception as exc:
+        return {
+            "exists": True,
+            "valid": False,
+            "cookie_count": 0,
+            "cookie_names": [],
+            "error": str(exc),
+        }
+
+    names = [str(cookie.get("name") or "") for cookie in cookies if cookie.get("name")]
+    essential = ["_m_h5_tk", "_m_h5_tk_enc", "aep_usuc_f", "cna", "isg"]
+    found_essential = [name for name in essential if name in names]
+    last_modified, age_minutes, file_size = _file_age_status(cookie_path)
+    return {
+        "exists": True,
+        "valid": len(found_essential) >= 4,
+        "cookie_count": len(names),
+        "cookie_names": names,
+        "essential_found": found_essential,
+        "essential_missing": [name for name in essential if name not in names],
+        "file_size": file_size,
+        "last_modified": last_modified,
+        "age_minutes": age_minutes,
     }
 
 

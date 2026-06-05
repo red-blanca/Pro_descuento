@@ -19,6 +19,7 @@ WORKDIR /app
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN playwright install --with-deps chromium
 
 COPY mercadolibre.py global_search.py server.py run_dev.py README.md ./
 COPY automation ./automation
@@ -29,6 +30,8 @@ COPY solotodo_scraper ./solotodo_scraper
 COPY travel_scraper ./travel_scraper
 COPY tuganga_scraper ./tuganga_scraper
 COPY descuentosrata_scraper ./descuentosrata_scraper
+COPY pcfactory_scraper ./pcfactory_scraper
+COPY aliexpress_scraper ./aliexpress_scraper
 COPY --from=web-build /app/web/dist ./web/dist
 
 EXPOSE 10000

@@ -192,7 +192,16 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
               <>
                 <Field label="Palabra obligatoria" wide><TextInput value={globalForm.pcfactory_word} onChange={(e) => onGlobalChange('pcfactory_word', e.target.value)} /></Field>
                 <p className="md:col-span-2 text-[10px] text-matrix-green/60 font-mono italic">
-                  Escaneo realizado a través de pasarela TuGanga.
+                  Escaneo directo contra catalogo pcFactory.
+                </p>
+              </>
+            )}
+            {node.id === 'aliexpress' && (
+              <>
+                <Field label="Palabra obligatoria" wide><TextInput value={globalForm.aliexpress_word} onChange={(e) => onGlobalChange('aliexpress_word', e.target.value)} /></Field>
+                <div className="md:col-span-2"><Check label="PRECIO_ALIEXPRESS_INCLUYE_IVA_CL" checked={globalForm.aliexpress_price_includes_chile_vat} onChange={(value) => onGlobalChange('aliexpress_price_includes_chile_vat', value)} /></div>
+                <p className="md:col-span-2 text-[10px] text-matrix-green/60 font-mono italic">
+                  Calcula IVA, arancel e internacion estimada para Chile sobre el valor CIF.
                 </p>
               </>
             )}

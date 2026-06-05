@@ -7,6 +7,7 @@ export const GLOBAL_NODES = [
   { id: 'travel', sourceKey: 'travel', name: 'Travel', icon: 'Plane' },
   { id: 'tuganga', sourceKey: 'tuganga', name: 'TuGanga', icon: 'Zap' },
   { id: 'pcfactory', sourceKey: 'pcfactory', name: 'PcFactory', icon: 'Store' },
+  { id: 'aliexpress', sourceKey: 'aliexpress', name: 'AliExpress', icon: 'Globe' },
   { id: 'rata', sourceKey: 'descuentosrata', name: 'DescuentosRata', icon: 'TrendingDown' },
 ]
 
