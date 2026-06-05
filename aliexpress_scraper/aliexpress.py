@@ -324,16 +324,19 @@ def _product_nodes(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return products
 
 
-def _price_from_node(node: dict[str, Any]) -> tuple[float, str]:
+def _price_from_node(node: dict[str, Any]) -> tuple[float, str, float]:
     price_info = node.get("priceInfo") if isinstance(node.get("priceInfo"), dict) else {}
     prices = node.get("prices") if isinstance(node.get("prices"), dict) else {}
     sale_price = prices.get("salePrice") if isinstance(prices.get("salePrice"), dict) else {}
     original_price = prices.get("originalPrice") if isinstance(prices.get("originalPrice"), dict) else {}
+
+    max_p = 0.0
     for price_dict in (sale_price, original_price):
         parsed = _clean_number(_first_value(price_dict, ("minPrice", "cent", "value", "amount")))
+        mx = _clean_number(_first_value(price_dict, ("maxPrice",)))
         currency = str(_first_value(price_dict, ("currencyCode", "currency", "symbol")) or "").upper()
         if parsed > 0:
-            return parsed, currency
+            return parsed, currency, mx
     candidates = [
         sale_price.get("formattedPrice"),
         price_info.get("salePrice"),
@@ -349,16 +352,17 @@ def _price_from_node(node: dict[str, Any]) -> tuple[float, str]:
     for candidate in candidates:
         if isinstance(candidate, dict):
             amount = _first_value(candidate, ("value", "amount", "minPrice", "salePrice"))
+            mx = _clean_number(_first_value(candidate, ("maxPrice",)))
             currency = str(_first_value(candidate, ("currency", "currencyCode", "symbol")) or "").upper()
             parsed = _clean_number(amount)
             if parsed > 0:
-                return parsed, currency
+                return parsed, currency, mx
         parsed = _clean_number(candidate)
         if parsed > 0:
             text = str(candidate or "").upper()
             currency = "USD" if "US" in text or "USD" in text else ("CLP" if "$" in text or "CLP" in text else "")
-            return parsed, currency
-    return 0.0, ""
+            return parsed, currency, 0.0
+    return 0.0, "", 0.0
 
 
 def _shipping_from_node(node: dict[str, Any], currency: str) -> float:
@@ -398,6 +402,7 @@ def _calculate_chile_cost(
     currency: str,
     usd_clp_rate: float,
     price_includes_chile_vat: bool,
+    is_choice: bool = False,
 ) -> dict[str, float | bool]:
     display_total_usd = _to_usd(display_total, currency, usd_clp_rate)
     if display_total_usd <= 0:
@@ -412,8 +417,12 @@ def _calculate_chile_cost(
             "over_usd_500": False,
         }
 
+    # AliExpress Choice typically already includes Chilean VAT (IVA) in the displayed price
+    # for most items shipped to Chile.
+    effectively_includes_vat = price_includes_chile_vat or is_choice
+
     if display_total_usd <= USD_CIF_THRESHOLD:
-        if price_includes_chile_vat:
+        if effectively_includes_vat:
             net_cif_usd = display_total_usd / (1 + IVA_RATE)
             iva_usd = display_total_usd - net_cif_usd
             final_usd = display_total_usd
@@ -424,6 +433,7 @@ def _calculate_chile_cost(
         duty_usd = 0.0
         handling_usd = 0.0
     else:
+        # Over USD 500 always triggers duties and handled differently by customs
         net_cif_usd = display_total_usd
         duty_usd = net_cif_usd * DUTY_RATE
         iva_usd = (net_cif_usd + duty_usd) * IVA_RATE
@@ -591,10 +601,30 @@ def _normalize_product(
     if isinstance(title_value, dict):
         title_value = _first_value(title_value, ("displayTitle", "seoTitle", "title", "text"))
     title = str(title_value or "").strip()
-    price, currency = _price_from_node(node)
+    price, currency, max_price = _price_from_node(node)
+
+    # Detect Choice item
+    is_choice = False
+    selling_points = node.get("sellingPoints", [])
+    if isinstance(selling_points, list):
+        for sp in selling_points:
+            if isinstance(sp, dict) and sp.get("source") == "choice_atm":
+                is_choice = True
+                break
+    if not is_choice:
+        ut_log_map = node.get("trace", {}).get("utLogMap", {})
+        if isinstance(ut_log_map, dict) and ut_log_map.get("isChoice") == "true":
+            is_choice = True
+
     shipping = _shipping_from_node(node, currency)
     display_total = price + shipping
-    cost = _calculate_chile_cost(display_total, currency, usd_clp_rate, price_includes_chile_vat)
+    cost = _calculate_chile_cost(display_total, currency, usd_clp_rate, price_includes_chile_vat, is_choice=is_choice)
+
+    max_price_clp = 0.0
+    if max_price > price:
+        max_cost = _calculate_chile_cost(max_price + shipping, currency, usd_clp_rate, price_includes_chile_vat, is_choice=is_choice)
+        max_price_clp = float(max_cost["final_price_clp"])
+
     url = _absolute_url(_first_value(node, ("productDetailUrl", "productUrl", "url", "link")))
     if not url and product_id:
         url = f"{BASE_URL}/item/{product_id}.html"
@@ -629,6 +659,9 @@ def _normalize_product(
         "iva_applied_usd": float(cost["iva_applied_usd"]),
         "handling_fee_usd": float(cost["handling_fee_usd"]),
         "over_usd_500": bool(cost["over_usd_500"]),
+        "is_choice": is_choice,
+        "has_variants": max_price_clp > float(cost["final_price_clp"]),
+        "max_price_clp": max_price_clp if max_price_clp > 0 else None,
         "position": position,
         "source": "aliexpress",
     }
