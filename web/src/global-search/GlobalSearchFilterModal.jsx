@@ -33,6 +33,54 @@ function Check({ label, checked, onChange }) {
 export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChange, globalCategories, globalCategoriesLoading, onClose }) {
   const categories = globalCategories || {}
   const optionLabel = (category) => `${category.label}${category.count != null ? ` (${Number(category.count).toLocaleString('es-CL')})` : ''}`
+  const pcfactoryCategories = categories.pcfactory || []
+  const pcfactoryById = new Map(pcfactoryCategories.map((category) => [String(category.value), category]))
+  const pcfactoryPath = []
+  let pcfactoryCurrent = pcfactoryById.get(String(globalForm.pcfactory_category_id || ''))
+  while (pcfactoryCurrent) {
+    pcfactoryPath.unshift(pcfactoryCurrent)
+    pcfactoryCurrent = pcfactoryById.get(String(pcfactoryCurrent.parent_id || ''))
+  }
+  const pcfactoryOptionsFor = (parentId = '') => pcfactoryCategories.filter((category) => String(category.parent_id || '') === String(parentId || ''))
+  const pcfactorySelectLevels = []
+  let pcfactoryParentId = ''
+  for (let level = 0; level < 6; level += 1) {
+    const options = pcfactoryOptionsFor(pcfactoryParentId)
+    if (!options.length) break
+    const value = pcfactoryPath[level]?.value || ''
+    pcfactorySelectLevels.push({
+      parentId: pcfactoryParentId,
+      value,
+      options,
+      label: level === 0 ? 'Categoria principal' : level === 1 ? 'Subcategoria' : 'Detalle categoria',
+    })
+    if (!value) break
+    pcfactoryParentId = value
+  }
+  const aliexpressCategories = categories.aliexpress || []
+  const aliexpressById = new Map(aliexpressCategories.map((category) => [String(category.value), category]))
+  const aliexpressPath = []
+  let aliexpressCurrent = aliexpressById.get(String(globalForm.aliexpress_category_id || ''))
+  while (aliexpressCurrent) {
+    aliexpressPath.unshift(aliexpressCurrent)
+    aliexpressCurrent = aliexpressById.get(String(aliexpressCurrent.parent_id || ''))
+  }
+  const aliexpressOptionsFor = (parentId = '') => aliexpressCategories.filter((category) => String(category.parent_id || '') === String(parentId || ''))
+  const aliexpressSelectLevels = []
+  let aliexpressParentId = ''
+  for (let level = 0; level < 4; level += 1) {
+    const options = aliexpressOptionsFor(aliexpressParentId)
+    if (!options.length) break
+    const value = aliexpressPath[level]?.value || ''
+    aliexpressSelectLevels.push({
+      parentId: aliexpressParentId,
+      value,
+      options,
+      label: level === 0 ? 'Categoria principal' : 'Subcategoria',
+    })
+    if (!value) break
+    aliexpressParentId = value
+  }
 
   return (
     <Motion.div
@@ -190,18 +238,56 @@ export default function GlobalSearchFilterModal({ node, globalForm, onGlobalChan
             )}
             {node.id === 'pcfactory' && (
               <>
+                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {pcfactorySelectLevels.map((level, index) => (
+                    <Field key={`${level.parentId}-${index}`} label={level.label}>
+                      <SelectInput
+                        value={level.value}
+                        onChange={(e) => onGlobalChange('pcfactory_category_id', e.target.value || level.parentId)}
+                        disabled={globalCategoriesLoading}
+                      >
+                        <option value="">{globalCategoriesLoading ? 'Cargando categorias...' : index === 0 ? 'Todas las categorias' : 'Todas en este nivel'}</option>
+                        {level.options.map((category) => <option key={category.value} value={category.value}>{category.name || category.label}</option>)}
+                      </SelectInput>
+                    </Field>
+                  ))}
+                  {globalForm.pcfactory_category_id && (
+                    <div className="md:col-span-2 border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green/70">
+                      Categoria activa: {pcfactoryById.get(String(globalForm.pcfactory_category_id))?.label || globalForm.pcfactory_category_id}
+                    </div>
+                  )}
+                </div>
                 <Field label="Palabra obligatoria" wide><TextInput value={globalForm.pcfactory_word} onChange={(e) => onGlobalChange('pcfactory_word', e.target.value)} /></Field>
                 <p className="md:col-span-2 text-[10px] text-matrix-green/60 font-mono italic">
-                  Escaneo directo contra catalogo pcFactory.
+                  Categorias oficiales desde el menu de pcfactory.cl; el filtro se aplica localmente por categoria del producto.
                 </p>
               </>
             )}
             {node.id === 'aliexpress' && (
               <>
+                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {aliexpressSelectLevels.map((level, index) => (
+                    <Field key={`${level.parentId}-${index}`} label={level.label}>
+                      <SelectInput
+                        value={level.value}
+                        onChange={(e) => onGlobalChange('aliexpress_category_id', e.target.value || level.parentId)}
+                        disabled={globalCategoriesLoading}
+                      >
+                        <option value="">{globalCategoriesLoading ? 'Cargando categorias...' : index === 0 ? 'Todas las categorias' : 'Todas en este nivel'}</option>
+                        {level.options.map((category) => <option key={category.value} value={category.value}>{category.name || category.label}</option>)}
+                      </SelectInput>
+                    </Field>
+                  ))}
+                  {globalForm.aliexpress_category_id && (
+                    <div className="md:col-span-2 border border-matrix-green/30 bg-matrix-green/5 p-2 text-[10px] font-black uppercase text-matrix-green/70">
+                      Categoria activa: {aliexpressById.get(String(globalForm.aliexpress_category_id))?.label || globalForm.aliexpress_category_id}
+                    </div>
+                  )}
+                </div>
                 <Field label="Palabra obligatoria" wide><TextInput value={globalForm.aliexpress_word} onChange={(e) => onGlobalChange('aliexpress_word', e.target.value)} /></Field>
                 <div className="md:col-span-2"><Check label="PRECIO_ALIEXPRESS_INCLUYE_IVA_CL" checked={globalForm.aliexpress_price_includes_chile_vat} onChange={(value) => onGlobalChange('aliexpress_price_includes_chile_vat', value)} /></div>
                 <p className="md:col-span-2 text-[10px] text-matrix-green/60 font-mono italic">
-                  Calcula IVA, arancel e internacion estimada para Chile sobre el valor CIF.
+                  La categoria se usa como termino guia para AliExpress y calcula IVA, arancel e internacion estimada para Chile.
                 </p>
               </>
             )}

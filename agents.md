@@ -217,7 +217,7 @@ Campos de configuracion global relevantes:
 - `smart_filter`
 - `sort_price`
 - `include_international`
-- Campos especificos por fuente: `facebook_radius_km`, `pulga_category`, `knasta_retails`, `solotodo_category_id`, `travel_category_id`, `tuganga_stores`, `descuentosrata_all`, `pcfactory_word`, `aliexpress_word`, etc.
+- Campos especificos por fuente: `facebook_radius_km`, `pulga_category`, `knasta_retails`, `solotodo_category_id`, `travel_category_id`, `tuganga_stores`, `descuentosrata_all`, `pcfactory_word`, `pcfactory_category_id`, `aliexpress_word`, `aliexpress_category_id`, etc.
 
 Importante:
 
@@ -315,18 +315,20 @@ Los scrapers viven en carpetas independientes. Ya **no tienen backends HTTP ni f
 
 - `pcfactory.py`: scraper que consulta productos de PcFactory Chile.
 - La busqueda global usa `pcfactory.collect_results(...)` y `pcfactory.apply_filters(...)`.
-- Campos: `pcfactory_word`.
+- Campos: `pcfactory_word`, `pcfactory_category_id`.
 - Implementacion actual: consulta directamente la API interna real de pcFactory (`/pcfactory-services-catalogo/v1/catalogo/productos?search=...&size=48`), sin depender de TuGanga.
+- Las categorias se obtienen desde el menu oficial de pcFactory (`/api-dex-catalog/v1/catalog/category/PCF/menu`) y se filtran localmente por `categoria.id`, ya que el endpoint de busqueda no respeta filtros de categoria de forma confiable.
 - Este scraper siempre debe ejecutar busqueda completa (todas las paginas disponibles), descargando paginas en paralelo con `ThreadPoolExecutor` para mantener velocidad.
 
 ### AliExpress (`aliexpress_scraper/`)
 
 - `aliexpress.py`: scraper Playwright para resultados internacionales de AliExpress normalizados a costo final estimado para Chile.
 - La busqueda global usa `aliexpress.collect_results(...)` y `aliexpress.apply_filters(...)`.
-- Campos: `aliexpress_word`, `aliexpress_price_includes_chile_vat`.
+- Campos: `aliexpress_word`, `aliexpress_category_id`, `aliexpress_price_includes_chile_vat`.
 - Requiere `Playwright` + `playwright-stealth`; despues de instalar dependencias ejecutar `playwright install chromium`.
 - Para obtener precios y envios orientados a Chile, inyecta la cookie regional `aep_usuc_f` con valor `site=glo&c_tp=CLP&region=CL&b_locale=es_CL`.
 - Extrae datos del JSON incrustado en scripts de inicializacion como `window.runParams` o equivalentes.
+- Las categorias de AliExpress se exponen como arbol local de navegacion principal/subcategoria. Se usan como terminos guia de busqueda porque AliExpress no expone un filtro de categoria estable como pcFactory.
 - Impuestos de internacion a Chile:
   - Compras hasta US$ 500: IVA 19%; arancel aduanero 0%.
   - Compras sobre US$ 500: arancel 6% sobre CIF, IVA 19% sobre CIF + arancel, y costo estimado de internacion courier de $15.000 CLP.

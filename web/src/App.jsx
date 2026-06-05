@@ -59,7 +59,9 @@ function App() {
     tuganga_only_available: false,
     tuganga_sort: '',
     pcfactory_word: '',
+    pcfactory_category_id: '',
     aliexpress_word: '',
+    aliexpress_category_id: '',
     aliexpress_price_includes_chile_vat: true,
     descuentosrata_all: true,
     descuentosrata_limit: 10000,
@@ -77,6 +79,8 @@ function App() {
     solotodo: [],
     travel: [],
     tuganga: [],
+    pcfactory: [],
+    aliexpress: [],
   })
   const [globalCategoriesLoading, setGlobalCategoriesLoading] = useState(false)
   const [categorySuggestion, setCategorySuggestion] = useState(null)
@@ -159,6 +163,8 @@ function App() {
       solotodo_category_id: 0,
       travel_category_id: '',
       tuganga_category: '',
+      pcfactory_category_id: '',
+      aliexpress_category_id: '',
       tuganga_mode: prev.query.trim() ? 'search' : prev.tuganga_mode,
     }))
     setCategorySuggestion(null)
@@ -217,7 +223,7 @@ function App() {
   }, [globalForm.auto_categories, categorySuggestion, globalForm.query, applySuggestedCategories])
 
   const onGlobalChange = (key, value) => {
-    const categoryKeys = new Set(['pulga_category', 'knasta_category', 'solotodo_category_id', 'travel_category_id', 'tuganga_category'])
+    const categoryKeys = new Set(['pulga_category', 'knasta_category', 'solotodo_category_id', 'travel_category_id', 'tuganga_category', 'pcfactory_category_id', 'aliexpress_category_id'])
     setGlobalForm((prev) => {
       const next = { ...prev, [key]: value }
       if (categoryKeys.has(key) && prev.auto_categories) {
@@ -367,7 +373,9 @@ function App() {
       globalForm.knasta_category ||
       globalForm.solotodo_category_id ||
       globalForm.travel_category_id ||
-      globalForm.tuganga_category
+      globalForm.tuganga_category ||
+      globalForm.pcfactory_category_id ||
+      globalForm.aliexpress_category_id
     )
     return hasQuery || onlyRata || hasCategory
   }, [
@@ -378,6 +386,8 @@ function App() {
     globalForm.solotodo_category_id,
     globalForm.travel_category_id,
     globalForm.tuganga_category,
+    globalForm.pcfactory_category_id,
+    globalForm.aliexpress_category_id,
   ])
 
   const toggleGlobalSource = (source) => {

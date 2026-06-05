@@ -136,7 +136,9 @@ class GlobalSearchPayload(BaseModel):
     tuganga_only_available: bool = Field(default=False)
     tuganga_sort: str = Field(default="")
     pcfactory_word: str = Field(default="")
+    pcfactory_category_id: str = Field(default="")
     aliexpress_word: str = Field(default="")
+    aliexpress_category_id: str = Field(default="")
     aliexpress_price_includes_chile_vat: bool = Field(default=True)
     descuentosrata_all: bool = Field(default=True)
     descuentosrata_limit: int = Field(default=10000)
@@ -216,6 +218,8 @@ def global_search_start(payload: GlobalSearchPayload) -> dict:
         cfg.get("solotodo_category_id"),
         cfg.get("travel_category_id"),
         cfg.get("tuganga_categories"),
+        cfg.get("pcfactory_category_id"),
+        cfg.get("aliexpress_category_id"),
     ])
     if not cfg["query"] and not has_category and any(s != "descuentosrata" for s in cfg["sources"]):
         raise HTTPException(status_code=400, detail="Debes indicar una búsqueda o seleccionar una categoría.")
@@ -305,6 +309,8 @@ def global_categories(
         "solotodo": [],
         "travel": [],
         "tuganga": [],
+        "pcfactory": [],
+        "aliexpress": [],
     }
     errors: dict[str, str] = {}
 
@@ -368,6 +374,43 @@ def global_categories(
         ]
     except Exception as exc:
         errors["tuganga"] = str(exc)
+
+    try:
+        import pcfactory
+
+        categories["pcfactory"] = [
+            {
+                "id": str(category.get("id") or ""),
+                "value": str(category.get("id") or ""),
+                "label": str(category.get("label") or category.get("name") or ""),
+                "name": str(category.get("name") or ""),
+                "depth": category.get("depth", 0),
+                "parent_id": str(category.get("parent_id") or ""),
+                "has_children": bool(category.get("has_children")),
+            }
+            for category in pcfactory.fetch_categories()
+            if category.get("id")
+        ]
+    except Exception as exc:
+        errors["pcfactory"] = str(exc)
+
+    try:
+        import aliexpress
+
+        categories["aliexpress"] = [
+            {
+                "id": str(category.get("id") or ""),
+                "value": str(category.get("value") or category.get("id") or ""),
+                "label": str(category.get("label") or category.get("name") or ""),
+                "name": str(category.get("name") or ""),
+                "depth": category.get("depth", 0),
+                "parent_id": str(category.get("parent_id") or ""),
+                "has_children": bool(category.get("has_children")),
+            }
+            for category in aliexpress.fetch_categories()
+        ]
+    except Exception as exc:
+        errors["aliexpress"] = str(exc)
 
     suggested = {}
     try:

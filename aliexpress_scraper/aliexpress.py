@@ -38,6 +38,90 @@ DEFAULT_COOKIE_FILES = [
     os.path.join(ROOT_DIR, "aliexpress_cookies.txt"),
 ]
 
+ALIEXPRESS_CATEGORY_TREE = [
+    ("electronics", "Electronica", "electronics", [
+        ("phones", "Telefonos y accesorios", "phone case charger smartphone"),
+        ("audio", "Audio y auriculares", "earphones headphones speaker microphone"),
+        ("smart_electronics", "Electronica inteligente", "smart watch smart home camera"),
+        ("components", "Componentes electronicos", "electronic components module sensor"),
+    ]),
+    ("computers", "Computacion y oficina", "computer laptop keyboard mouse monitor", [
+        ("laptops", "Laptops y tablets", "laptop tablet notebook"),
+        ("computer_peripherals", "Teclados, mouse y perifericos", "keyboard mouse gamer mechanical"),
+        ("storage", "Almacenamiento", "ssd hdd usb flash drive memory card"),
+        ("networking", "Redes", "wifi router network adapter switch"),
+        ("printers", "Impresoras y oficina", "printer label scanner office"),
+    ]),
+    ("automotive", "Automocion", "automotive car motorcycle", [
+        ("car_electronics", "Electronica para auto", "car camera dashcam android radio"),
+        ("motorcycle", "Motocicletas", "motorcycle accessories helmet gloves"),
+        ("car_parts", "Repuestos y accesorios", "car accessories parts tools"),
+    ]),
+    ("home_garden", "Casa y jardin", "home garden kitchen decor", [
+        ("kitchen", "Cocina", "kitchen tools cookware"),
+        ("home_decor", "Decoracion", "home decor led light wall"),
+        ("garden", "Jardin", "garden irrigation plant tools"),
+        ("storage_home", "Organizacion", "storage organizer shelf box"),
+    ]),
+    ("fashion_women", "Moda mujer", "women clothing fashion", [
+        ("women_clothing", "Ropa de mujer", "women clothing dress blouse"),
+        ("women_accessories", "Accesorios mujer", "women accessories scarf belt"),
+        ("lingerie", "Ropa interior", "lingerie underwear women"),
+    ]),
+    ("fashion_men", "Moda hombre", "men clothing fashion", [
+        ("men_clothing", "Ropa de hombre", "men clothing shirt pants"),
+        ("men_accessories", "Accesorios hombre", "men accessories wallet belt"),
+        ("mens_underwear", "Ropa interior hombre", "men underwear socks"),
+    ]),
+    ("shoes_bags", "Zapatos y bolsos", "shoes bags", [
+        ("shoes", "Zapatos", "shoes sneakers boots"),
+        ("bags", "Bolsos y mochilas", "bag backpack handbag"),
+        ("luggage", "Equipaje", "luggage suitcase travel bag"),
+    ]),
+    ("beauty_health", "Belleza y salud", "beauty health", [
+        ("makeup", "Maquillaje", "makeup cosmetics"),
+        ("skin_care", "Cuidado de piel", "skin care beauty"),
+        ("hair", "Cabello", "hair clipper dryer wig"),
+        ("health", "Salud y cuidado personal", "health personal care massager"),
+    ]),
+    ("sports_outdoors", "Deportes y aire libre", "sports outdoors", [
+        ("fitness", "Fitness", "fitness gym equipment"),
+        ("cycling", "Ciclismo", "cycling bike accessories"),
+        ("camping", "Camping", "camping hiking outdoor"),
+        ("fishing", "Pesca", "fishing tackle reel"),
+    ]),
+    ("toys_games", "Juguetes y juegos", "toys games", [
+        ("toys", "Juguetes", "toys kids"),
+        ("rc", "RC y drones", "rc car drone"),
+        ("puzzles", "Puzzles y juegos", "puzzle board game"),
+    ]),
+    ("mother_kids", "Mama y bebe", "baby kids", [
+        ("baby", "Bebe", "baby clothes stroller"),
+        ("kids_clothing", "Ropa infantil", "kids clothing shoes"),
+        ("maternity", "Maternidad", "maternity pregnancy"),
+    ]),
+    ("tools", "Herramientas", "tools", [
+        ("power_tools", "Herramientas electricas", "power tools drill grinder"),
+        ("hand_tools", "Herramientas manuales", "hand tools screwdriver wrench"),
+        ("measurement", "Medicion", "multimeter laser measure"),
+    ]),
+    ("appliances", "Electrodomesticos", "appliances", [
+        ("small_appliances", "Pequenos electrodomesticos", "small appliances blender vacuum"),
+        ("home_appliances", "Electrodomesticos hogar", "home appliances"),
+        ("personal_appliances", "Cuidado personal electrico", "electric shaver hair dryer"),
+    ]),
+    ("jewelry", "Joyeria y relojes", "jewelry watches", [
+        ("watches", "Relojes", "watch smartwatch"),
+        ("jewelry_accessories", "Joyeria", "jewelry necklace ring bracelet"),
+        ("beads", "Bisuteria e insumos", "beads charms jewelry making"),
+    ]),
+    ("pet_supplies", "Mascotas", "pet supplies", [
+        ("dog_supplies", "Perros", "dog pet supplies"),
+        ("cat_supplies", "Gatos", "cat pet supplies"),
+        ("aquarium", "Acuario", "aquarium fish tank"),
+    ]),
+]
+
 
 def _format_clp(value: float) -> str:
     amount = max(0, int(round(value)))
@@ -68,6 +152,47 @@ def _first_value(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
         if key in data and data[key] not in (None, ""):
             return data[key]
     return None
+
+
+def fetch_categories() -> list[dict[str, Any]]:
+    categories: list[dict[str, Any]] = []
+    for root_id, root_name, root_search, children in ALIEXPRESS_CATEGORY_TREE:
+        categories.append({
+            "id": root_id,
+            "value": root_id,
+            "label": root_name,
+            "name": root_name,
+            "search": root_search,
+            "depth": 0,
+            "parent_id": "",
+            "has_children": bool(children),
+        })
+        for child_id, child_name, child_search in children:
+            categories.append({
+                "id": child_id,
+                "value": child_id,
+                "label": f"{root_name} / {child_name}",
+                "name": child_name,
+                "search": child_search,
+                "depth": 1,
+                "parent_id": root_id,
+                "has_children": False,
+            })
+    return categories
+
+
+def _category_by_id(category_id: str | None) -> dict[str, Any] | None:
+    wanted = str(category_id or "").strip()
+    if not wanted:
+        return None
+    return next((category for category in fetch_categories() if category.get("id") == wanted), None)
+
+
+def _category_seed(category_id: str | None) -> str:
+    category = _category_by_id(category_id)
+    if not category:
+        return ""
+    return str(category.get("search") or category.get("name") or "").strip()
 
 
 def _walk(value: Any):
@@ -607,7 +732,13 @@ def collect_results(
     """
     started = time.perf_counter()
     cleaned_query = (query or "").strip()
-    if not cleaned_query:
+    category_id = str(kwargs.get("category_id") or "").strip()
+    category = _category_by_id(category_id)
+    category_seed = _category_seed(category_id)
+    effective_query = cleaned_query
+    if category_seed:
+        effective_query = f"{cleaned_query} {category_seed}".strip() if cleaned_query else category_seed
+    if not effective_query:
         return [], {"total": 0, "pages_fetched": 0, "fetched_raw": 0, "error": "empty_query"}
 
     target = max(1, min(int(limit or 40), 10_000))
@@ -624,7 +755,7 @@ def collect_results(
 
     for page_num in range(1, pages + 1):
         try:
-            html = _fetch_search_html(cleaned_query, page_num, cookie_file=cookie_file)
+            html = _fetch_search_html(effective_query, page_num, cookie_file=cookie_file)
             if _is_challenge_page(html):
                 errors.append(f"page {page_num}: AliExpress challenge/captcha")
                 if page_num == 1:
@@ -663,7 +794,11 @@ def collect_results(
         "pages_requested": pages,
         "fetched_raw": len(raw_products),
         "query_mode": "playwright",
-        "search_url": SEARCH_URL.format(query=urllib.parse.quote(re.sub(r"\s+", "-", cleaned_query))),
+        "search_url": SEARCH_URL.format(query=urllib.parse.quote(re.sub(r"\s+", "-", effective_query))),
+        "category_id": category_id,
+        "category": category.get("label") if category else "",
+        "category_seed": category_seed,
+        "effective_query": effective_query,
         "usd_clp_rate": usd_clp_rate,
         "price_includes_chile_vat": price_includes_chile_vat,
         "elapsed_seconds": round(time.perf_counter() - started, 2),

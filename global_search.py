@@ -471,6 +471,7 @@ def _run_pcfactory(cfg: dict[str, Any]) -> dict[str, Any]:
         query=cfg["query"],
         limit=_limit_for(cfg["scan_scope"], cfg["max_items_per_source"], 80),
         scan_scope=cfg["scan_scope"],
+        category_id=cfg["pcfactory_category_id"],
     )
     items = pcfactory.apply_filters(
         items,
@@ -492,6 +493,7 @@ def _run_aliexpress(cfg: dict[str, Any]) -> dict[str, Any]:
         scan_scope=cfg["scan_scope"],
         max_pages=10 if cfg["scan_scope"] == "complete" else 1,
         price_includes_chile_vat=cfg["aliexpress_price_includes_chile_vat"],
+        category_id=cfg["aliexpress_category_id"],
     )
     items = aliexpress.apply_filters(
         items,
@@ -606,7 +608,9 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
         "tuganga_only_available": bool(raw.get("tuganga_only_available", False)),
         "tuganga_sort": str(raw.get("tuganga_sort") or "").strip(),
         "pcfactory_word": str(raw.get("pcfactory_word") or "").strip(),
+        "pcfactory_category_id": str(raw.get("pcfactory_category_id") or "").strip(),
         "aliexpress_word": str(raw.get("aliexpress_word") or "").strip(),
+        "aliexpress_category_id": str(raw.get("aliexpress_category_id") or "").strip(),
         "aliexpress_price_includes_chile_vat": bool(raw.get("aliexpress_price_includes_chile_vat", True)),
         "descuentosrata_all": bool(raw.get("descuentosrata_all", True)),
         "descuentosrata_limit": max(1, min(int(raw.get("descuentosrata_limit") or 10000), 10000)),
@@ -626,6 +630,8 @@ def run_global_search(
         cfg.get("solotodo_category_id"),
         cfg.get("travel_category_id"),
         cfg.get("tuganga_categories"),
+        cfg.get("pcfactory_category_id"),
+        cfg.get("aliexpress_category_id"),
     ])
     if not cfg["query"] and not has_category and any(source != "descuentosrata" for source in cfg["sources"]):
         raise ValueError("Debes indicar una palabra clave o seleccionar una categoría.")
