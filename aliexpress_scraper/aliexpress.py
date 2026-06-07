@@ -7,6 +7,7 @@ import re
 import time
 import urllib.parse
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 
@@ -281,7 +282,7 @@ def _extract_keyed_object(html: str, key: str) -> list[dict[str, Any]]:
 
 def _extract_json_objects(html: str) -> list[dict[str, Any]]:
     objects: list[dict[str, Any]] = []
-    for marker in ("window.runParams", "window.__AER_DATA__", "window._dida_config_"):
+    for marker in ("window.runParams", "window.__AER_DATA__", "window._dida_config_", "window._d_c_.DCData"):
         objects.extend(_extract_assigned_json(html, marker))
     objects.extend(_extract_keyed_object(html, "itemList"))
 
@@ -324,16 +325,32 @@ def _product_nodes(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return products
 
 
-def _price_from_node(node: dict[str, Any]) -> tuple[float, str]:
+def _extract_price_amount(value: Any) -> tuple[float, str]:
+    if isinstance(value, dict):
+        amount = _first_value(value, ("value", "amount", "minPrice", "salePrice", "price", "cent"))
+        currency = str(_first_value(value, ("currency", "currencyCode", "symbol", "currencyCodeSymbol")) or "").upper()
+        parsed = _clean_number(amount)
+        if parsed > 0:
+            return parsed, currency
+    parsed = _clean_number(value)
+    if parsed > 0:
+        text = str(value or "").upper()
+        currency = "USD" if "US" in text or "USD" in text else ("CLP" if "$" in text or "CLP" in text else "")
+        return parsed, currency
+    return 0.0, ""
+
+
+def _price_from_node(node: dict[str, Any]) -> tuple[float, str, float]:
     price_info = node.get("priceInfo") if isinstance(node.get("priceInfo"), dict) else {}
     prices = node.get("prices") if isinstance(node.get("prices"), dict) else {}
     sale_price = prices.get("salePrice") if isinstance(prices.get("salePrice"), dict) else {}
     original_price = prices.get("originalPrice") if isinstance(prices.get("originalPrice"), dict) else {}
     for price_dict in (sale_price, original_price):
         parsed = _clean_number(_first_value(price_dict, ("minPrice", "cent", "value", "amount")))
+        max_price = _clean_number(_first_value(price_dict, ("maxPrice", "maxAmount", "maxCent")))
         currency = str(_first_value(price_dict, ("currencyCode", "currency", "symbol")) or "").upper()
         if parsed > 0:
-            return parsed, currency
+            return parsed, currency, max_price
     candidates = [
         sale_price.get("formattedPrice"),
         price_info.get("salePrice"),
@@ -347,18 +364,235 @@ def _price_from_node(node: dict[str, Any]) -> tuple[float, str]:
         node.get("formattedPrice"),
     ]
     for candidate in candidates:
-        if isinstance(candidate, dict):
-            amount = _first_value(candidate, ("value", "amount", "minPrice", "salePrice"))
-            currency = str(_first_value(candidate, ("currency", "currencyCode", "symbol")) or "").upper()
-            parsed = _clean_number(amount)
-            if parsed > 0:
-                return parsed, currency
-        parsed = _clean_number(candidate)
+        parsed, currency = _extract_price_amount(candidate)
         if parsed > 0:
-            text = str(candidate or "").upper()
-            currency = "USD" if "US" in text or "USD" in text else ("CLP" if "$" in text or "CLP" in text else "")
+            max_price = _clean_number(_first_value(candidate, ("maxPrice", "maxAmount", "maxCent"))) if isinstance(candidate, dict) else 0.0
+            return parsed, currency, max_price
+    return 0.0, "", 0.0
+
+
+def _variant_info_from_node(node: dict[str, Any], base_price: float, currency: str) -> dict[str, Any]:
+    variant_keys = {
+        "sku",
+        "skuid",
+        "skus",
+        "skuinfo",
+        "skuinfos",
+        "skulist",
+        "skuimages",
+        "skuimageslist",
+        "sku_images",
+        "skuproperties",
+        "skupropertieslist",
+        "skuattr",
+        "aeskupropertydtos",
+    }
+    price_values: list[float] = []
+    detected_keys = 0
+    variant_count = 0
+
+    for candidate in _walk(node):
+        for key, value in candidate.items():
+            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            if normalized_key in variant_keys or normalized_key.startswith("sku"):
+                detected_keys += 1
+                if isinstance(value, list):
+                    variant_count = max(variant_count, len(value))
+                elif isinstance(value, dict):
+                    variant_count = max(variant_count, len(value))
+
+            if any(token in normalized_key for token in ("price", "amount", "cent")):
+                parsed, parsed_currency = _extract_price_amount(value)
+                if parsed > 0 and (not parsed_currency or not currency or parsed_currency == currency):
+                    price_values.append(parsed)
+                if isinstance(value, dict):
+                    for nested_key in ("minPrice", "maxPrice", "salePrice", "price", "amount", "value", "cent"):
+                        parsed = _clean_number(value.get(nested_key))
+                        if parsed > 0:
+                            price_values.append(parsed)
+
+    reasonable_prices = [
+        value
+        for value in price_values
+        if value > 0 and (base_price <= 0 or 0.2 * base_price <= value <= 10 * base_price)
+    ]
+    if base_price > 0:
+        reasonable_prices.append(base_price)
+    min_price = min(reasonable_prices) if reasonable_prices else base_price
+    max_price = max(reasonable_prices) if reasonable_prices else base_price
+    has_range = bool(base_price > 0 and max_price > base_price * 1.03)
+
+    return {
+        "has_variants": detected_keys > 0 or variant_count > 1 or has_range,
+        "variant_count": variant_count if variant_count > 1 else None,
+        "variant_price_min": min_price if min_price > 0 else None,
+        "variant_price_max": max_price if max_price > min_price else None,
+        "variant_price_range_raw": [min_price, max_price] if max_price > min_price else None,
+    }
+
+
+def _as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return list(value.values())
+    return []
+
+
+def _normalize_sku_token(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if ":" in text:
+        return text.split(":")[-1].strip()
+    return text
+
+
+def _sku_property_maps(sku_module: dict[str, Any]) -> tuple[dict[str, dict[str, str]], int]:
+    property_lists = []
+    for key in (
+        "skuPropertyList",
+        "productSKUPropertyList",
+        "skuProperties",
+        "skuProps",
+        "skuPropertyJson",
+        "aeSkuPropertyDtos",
+    ):
+        property_lists.extend(item for item in _as_list(sku_module.get(key)) if isinstance(item, dict))
+
+    value_map: dict[str, dict[str, str]] = {}
+    property_count = 0
+    for prop in property_lists:
+        prop_name = str(_first_value(prop, ("skuPropertyName", "propertyName", "name", "title")) or "").strip()
+        values = []
+        for key in ("skuPropertyValues", "skuPropertyValueList", "values", "propertyValues", "skuValues"):
+            values.extend(item for item in _as_list(prop.get(key)) if isinstance(item, dict))
+        if values:
+            property_count += 1
+        for value in values:
+            value_name = str(
+                _first_value(value, ("skuPropertyValueName", "propertyValueName", "name", "value", "title", "text"))
+                or ""
+            ).strip()
+            image = _absolute_url(
+                _first_value(value, ("skuPropertyImagePath", "skuPropertyImage", "image", "imageUrl", "imgUrl"))
+            )
+            ids = [
+                value.get("propertyValueIdLong"),
+                value.get("propertyValueId"),
+                value.get("skuPropertyValueId"),
+                value.get("vid"),
+                value.get("id"),
+            ]
+            for raw_id in ids:
+                token = _normalize_sku_token(raw_id)
+                if token:
+                    value_map[token] = {"property": prop_name, "value": value_name, "image": image}
+    return value_map, property_count
+
+
+def _sku_price_entries(sku_module: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for key in ("skuPriceList", "skuPrices", "skuList", "skuValList", "priceList"):
+        entries.extend(item for item in _as_list(sku_module.get(key)) if isinstance(item, dict))
+    return entries
+
+
+def _sku_entry_price(entry: dict[str, Any]) -> tuple[float, str]:
+    candidates: list[Any] = []
+    sku_val = entry.get("skuVal") if isinstance(entry.get("skuVal"), dict) else {}
+    candidates.extend([
+        sku_val.get("skuActivityAmount"),
+        sku_val.get("skuAmount"),
+        sku_val.get("actSkuCalPrice"),
+        sku_val.get("skuCalPrice"),
+        sku_val.get("skuPrice"),
+        entry.get("salePrice"),
+        entry.get("price"),
+        entry.get("amount"),
+        entry.get("skuActivityAmount"),
+        entry.get("skuAmount"),
+        entry.get("skuCalPrice"),
+    ])
+    for candidate in candidates:
+        parsed, currency = _extract_price_amount(candidate)
+        if parsed > 0:
             return parsed, currency
     return 0.0, ""
+
+
+def _sku_entry_prop_tokens(entry: dict[str, Any]) -> list[str]:
+    raw = _first_value(entry, ("skuPropIds", "skuPropId", "skuPropertyIds", "props", "propPath", "skuAttr"))
+    if isinstance(raw, list):
+        return [_normalize_sku_token(value) for value in raw if _normalize_sku_token(value)]
+    text = str(raw or "")
+    return [_normalize_sku_token(part) for part in re.split(r"[;,#\s]+", text) if _normalize_sku_token(part)]
+
+
+def _extract_variant_details_from_payloads(
+    payloads: list[dict[str, Any]],
+    shipping: float,
+    fallback_currency: str,
+    usd_clp_rate: float,
+    price_includes_chile_vat: bool,
+    is_choice: bool,
+) -> list[dict[str, Any]]:
+    variants: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for node in _walk(payloads):
+        if not isinstance(node, dict):
+            continue
+        sku_module = node.get("skuModule") if isinstance(node.get("skuModule"), dict) else node
+        sku_entries = _sku_price_entries(sku_module)
+        if not sku_entries:
+            continue
+        value_map, property_count = _sku_property_maps(sku_module)
+        for entry in sku_entries:
+            price, currency = _sku_entry_price(entry)
+            if price <= 0:
+                continue
+            tokens = _sku_entry_prop_tokens(entry)
+            parts: list[str] = []
+            image = ""
+            for token in tokens:
+                mapped = value_map.get(token)
+                if not mapped:
+                    continue
+                label = mapped["value"]
+                if mapped["property"]:
+                    label = f"{mapped['property']}: {label}" if label else mapped["property"]
+                if label:
+                    parts.append(label)
+                if not image and mapped.get("image"):
+                    image = mapped["image"]
+            variant_name = " / ".join(dict.fromkeys(parts)) or str(_first_value(entry, ("skuName", "name", "title")) or "").strip()
+            sku_id = str(_first_value(entry, ("skuId", "id", "skuAttr")) or ",".join(tokens) or variant_name).strip()
+            key = sku_id or variant_name
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            cost = _calculate_chile_cost(price + shipping, currency or fallback_currency, usd_clp_rate, price_includes_chile_vat, is_choice=is_choice)
+            variants.append({
+                "sku_id": sku_id,
+                "name": variant_name,
+                "attributes": parts,
+                "price_original": price,
+                "shipping": shipping,
+                "display_currency": currency or fallback_currency or "CLP",
+                "price_final_clp": float(cost["final_price_clp"]),
+                "price_clp_final": float(cost["final_price_clp"]),
+                "tax_estimated_clp": round(_to_clp(float(cost["tax_applied_usd"]) + float(cost["handling_fee_usd"]), usd_clp_rate)),
+                "final_price_usd": float(cost["final_price_usd"]),
+                "image": image or None,
+                "available": not bool(entry.get("disabled") or entry.get("soldOut")),
+                "stock": _clean_number(_first_value(entry, ("availQuantity", "stock", "quantity"))),
+            })
+        if variants and (property_count > 0 or len(variants) > 1):
+            break
+
+    variants.sort(key=lambda item: (item["price_final_clp"], item.get("name") or ""))
+    return variants
 
 
 def _shipping_from_node(node: dict[str, Any], currency: str) -> float:
@@ -398,6 +632,7 @@ def _calculate_chile_cost(
     currency: str,
     usd_clp_rate: float,
     price_includes_chile_vat: bool,
+    is_choice: bool = False,
 ) -> dict[str, float | bool]:
     display_total_usd = _to_usd(display_total, currency, usd_clp_rate)
     if display_total_usd <= 0:
@@ -412,8 +647,10 @@ def _calculate_chile_cost(
             "over_usd_500": False,
         }
 
+    effectively_includes_vat = price_includes_chile_vat or is_choice
+
     if display_total_usd <= USD_CIF_THRESHOLD:
-        if price_includes_chile_vat:
+        if effectively_includes_vat:
             net_cif_usd = display_total_usd / (1 + IVA_RATE)
             iva_usd = display_total_usd - net_cif_usd
             final_usd = display_total_usd
@@ -424,7 +661,10 @@ def _calculate_chile_cost(
         duty_usd = 0.0
         handling_usd = 0.0
     else:
-        net_cif_usd = display_total_usd
+        # For values over USD 500, customs applies duty and VAT over CIF. If the
+        # Chilean AliExpress price already includes VAT, back it out first to avoid
+        # counting the same IVA twice in the final estimate.
+        net_cif_usd = display_total_usd / (1 + IVA_RATE) if effectively_includes_vat else display_total_usd
         duty_usd = net_cif_usd * DUTY_RATE
         iva_usd = (net_cif_usd + duty_usd) * IVA_RATE
         handling_usd = HANDLING_FEE_CLP / usd_clp_rate
@@ -591,10 +831,35 @@ def _normalize_product(
     if isinstance(title_value, dict):
         title_value = _first_value(title_value, ("displayTitle", "seoTitle", "title", "text"))
     title = str(title_value or "").strip()
-    price, currency = _price_from_node(node)
+    price, currency, max_price = _price_from_node(node)
+    variant_info = _variant_info_from_node(node, price, currency)
+    variant_max_price = _clean_number(variant_info.get("variant_price_max"))
+    if variant_max_price > max_price:
+        max_price = variant_max_price
+
+    is_choice = False
+    selling_points = node.get("sellingPoints", [])
+    if isinstance(selling_points, list):
+        for sp in selling_points:
+            if isinstance(sp, dict):
+                marker = " ".join(str(sp.get(key, "")) for key in ("source", "tagText", "title", "text")).lower()
+                if "choice" in marker:
+                    is_choice = True
+                    break
+    if not is_choice:
+        trace = node.get("trace") if isinstance(node.get("trace"), dict) else {}
+        ut_log_map = trace.get("utLogMap") if isinstance(trace.get("utLogMap"), dict) else {}
+        raw_choice = _first_value(node, ("isChoice", "choice", "is_choice"))
+        is_choice = str(ut_log_map.get("isChoice") or raw_choice or "").lower() == "true"
+
     shipping = _shipping_from_node(node, currency)
     display_total = price + shipping
-    cost = _calculate_chile_cost(display_total, currency, usd_clp_rate, price_includes_chile_vat)
+    cost = _calculate_chile_cost(display_total, currency, usd_clp_rate, price_includes_chile_vat, is_choice=is_choice)
+    max_price_clp = 0.0
+    if max_price > price:
+        max_cost = _calculate_chile_cost(max_price + shipping, currency, usd_clp_rate, price_includes_chile_vat, is_choice=is_choice)
+        max_price_clp = float(max_cost["final_price_clp"])
+
     url = _absolute_url(_first_value(node, ("productDetailUrl", "productUrl", "url", "link")))
     if not url and product_id:
         url = f"{BASE_URL}/item/{product_id}.html"
@@ -605,22 +870,32 @@ def _normalize_product(
     image = _absolute_url(image_value)
     brand = _first_value(node, ("brand", "brandName"))
     category = _first_value(node, ("category", "categoryName"))
+    tax_estimated_usd = float(cost["tax_applied_usd"]) + float(cost["handling_fee_usd"])
+    tax_estimated_clp = round(_to_clp(tax_estimated_usd, usd_clp_rate))
 
     return {
         "id": f"aliexpress#{product_id}",
         "title": title,
         "name": title,
         "price": float(cost["final_price_clp"]),
+        "price_clp_final": float(cost["final_price_clp"]),
+        "price_final_clp": float(cost["final_price_clp"]),
         "formatted_price": _format_clp(float(cost["final_price_clp"])),
         "url": url,
         "link": url,
         "image": image,
+        "url_imagen": image,
         "store": "AliExpress",
         "brand": str(brand).strip() if brand else None,
         "category": str(category).strip() if category else None,
         "discount_percent": _discount_from_node(node),
+        "price_original": price,
         "original_price_usd": float(cost["original_price_usd"]),
+        "shipping": shipping,
         "tax_applied_usd": float(cost["tax_applied_usd"]),
+        "tax_estimated": tax_estimated_clp,
+        "tax_estimated_clp": tax_estimated_clp,
+        "tax_estimated_usd": round(tax_estimated_usd, 2),
         "final_price_usd": float(cost["final_price_usd"]),
         "display_price_raw": price,
         "display_currency": currency or "CLP",
@@ -629,6 +904,13 @@ def _normalize_product(
         "iva_applied_usd": float(cost["iva_applied_usd"]),
         "handling_fee_usd": float(cost["handling_fee_usd"]),
         "over_usd_500": bool(cost["over_usd_500"]),
+        "is_choice": is_choice,
+        "has_variants": bool(variant_info["has_variants"] or max_price_clp > float(cost["final_price_clp"])),
+        "variant_count": variant_info.get("variant_count"),
+        "variant_price_min": variant_info.get("variant_price_min"),
+        "variant_price_max": variant_info.get("variant_price_max"),
+        "variant_price_range_raw": variant_info.get("variant_price_range_raw"),
+        "max_price_clp": max_price_clp if max_price_clp > 0 else None,
         "position": position,
         "source": "aliexpress",
     }
@@ -708,6 +990,177 @@ def _fetch_search_html(query: str, page_num: int, cookie_file: str | None = None
             browser.close()
 
 
+def _fetch_detail_html(url: str, cookie_file: str | None = None) -> str:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "AliExpress requiere playwright y playwright-stealth. Instala dependencias y ejecuta: playwright install chromium"
+        ) from exc
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+            ],
+        )
+        try:
+            context = browser.new_context(
+                locale="es-CL",
+                timezone_id="America/Santiago",
+                viewport={"width": 1366, "height": 768},
+                user_agent=random.choice(USER_AGENTS),
+                extra_http_headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+                    "Referer": BASE_URL,
+                    "Upgrade-Insecure-Requests": "1",
+                },
+            )
+            cookies = _load_cookies(cookie_file)
+            cookies.append(
+                {
+                    "name": "aep_usuc_f",
+                    "value": COOKIE_VALUE,
+                    "domain": ".aliexpress.com",
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": True,
+                    "sameSite": "Lax",
+                }
+            )
+            context.add_cookies(cookies)
+            page = context.new_page()
+            _stealth_page(page)
+            page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS)
+            page.wait_for_timeout(random.randint(2200, 3600))
+            return page.content()
+        finally:
+            browser.close()
+
+
+def _extract_json_from_text(text: str) -> list[dict[str, Any]]:
+    stripped = (text or "").strip()
+    if not stripped:
+        return []
+    candidates = [stripped]
+    match = re.search(r"^[\w$.]+\((.*)\)\s*;?$", stripped, flags=re.DOTALL)
+    if match:
+        candidates.append(match.group(1).strip())
+    objects: list[dict[str, Any]] = []
+    for candidate in candidates:
+        try:
+            loaded = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(loaded, dict):
+            objects.append(loaded)
+    return objects
+
+
+def _fetch_detail_payloads(url: str, cookie_file: str | None = None) -> list[dict[str, Any]]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "AliExpress requiere playwright y playwright-stealth. Instala dependencias y ejecuta: playwright install chromium"
+        ) from exc
+
+    payloads: list[dict[str, Any]] = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+            ],
+        )
+        try:
+            context = browser.new_context(
+                locale="es-CL",
+                timezone_id="America/Santiago",
+                viewport={"width": 1366, "height": 768},
+                user_agent=random.choice(USER_AGENTS),
+                extra_http_headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+                    "Referer": BASE_URL,
+                    "Upgrade-Insecure-Requests": "1",
+                },
+            )
+            cookies = _load_cookies(cookie_file)
+            cookies.append(
+                {
+                    "name": "aep_usuc_f",
+                    "value": COOKIE_VALUE,
+                    "domain": ".aliexpress.com",
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": True,
+                    "sameSite": "Lax",
+                }
+            )
+            context.add_cookies(cookies)
+            page = context.new_page()
+            _stealth_page(page)
+
+            def on_response(response: Any) -> None:
+                response_url = str(getattr(response, "url", "") or "")
+                if not any(marker in response_url for marker in ("mtop.aliexpress", "/fn/", "itemdetail", "pdp")):
+                    return
+                if any(marker in response_url for marker in ("/css/", "/js/", ".css", ".js", ".png", ".jpg", ".webp")):
+                    return
+                try:
+                    text = response.text()
+                except Exception:
+                    return
+                payloads.extend(_extract_json_from_text(text))
+
+            page.on("response", on_response)
+            page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS)
+            page.wait_for_timeout(random.randint(3500, 5500))
+            payloads.extend(_extract_json_objects(page.content()))
+            return payloads
+        finally:
+            browser.close()
+
+
+def _enrich_item_variants(
+    item: dict[str, Any],
+    cookie_file: str | None,
+    usd_clp_rate: float,
+    price_includes_chile_vat: bool,
+) -> tuple[dict[str, Any], str | None]:
+    if not item.get("has_variants") or not item.get("url"):
+        return item, None
+    try:
+        payloads = _fetch_detail_payloads(str(item["url"]), cookie_file=cookie_file)
+        variants = _extract_variant_details_from_payloads(
+            payloads,
+            shipping=_clean_number(item.get("shipping")),
+            fallback_currency=str(item.get("display_currency") or ""),
+            usd_clp_rate=usd_clp_rate,
+            price_includes_chile_vat=price_includes_chile_vat,
+            is_choice=bool(item.get("is_choice")),
+        )
+        if not variants:
+            return item, "detalle sin matriz de precios por variante"
+        item["variants"] = variants
+        item["variant_count"] = len(variants)
+        item["variant_price_min"] = min(_clean_number(variant.get("price_original")) for variant in variants)
+        item["variant_price_max"] = max(_clean_number(variant.get("price_original")) for variant in variants)
+        item["variant_price_range_raw"] = [item["variant_price_min"], item["variant_price_max"]]
+        item["max_price_clp"] = max(_clean_number(variant.get("price_final_clp")) for variant in variants)
+        item["variant_source"] = "detail"
+        return item, None
+    except Exception as exc:
+        return item, str(exc)
+
+
 def _is_challenge_page(html: str) -> bool:
     lowered = html.lower()
     return (
@@ -749,28 +1202,45 @@ def collect_results(
     usd_clp_rate = float(kwargs.get("usd_clp_rate") or DEFAULT_USD_CLP_RATE)
     price_includes_chile_vat = bool(kwargs.get("price_includes_chile_vat", True))
     cookie_file = kwargs.get("cookie_file") or os.getenv("ALIEXPRESS_COOKIE_FILE")
+    enrich_variant_details = bool(kwargs.get("enrich_variant_details", True))
+    variant_detail_limit = max(0, int(kwargs.get("variant_detail_limit") or 6))
+    variant_detail_workers = max(1, min(int(kwargs.get("variant_detail_workers") or 1), 2))
     raw_products: list[dict[str, Any]] = []
     errors: list[str] = []
+    warnings_list: list[str] = []
     pages_fetched = 0
 
-    for page_num in range(1, pages + 1):
+    def fetch_page_products(page_num: int) -> tuple[int, list[dict[str, Any]], str | None]:
         try:
             html = _fetch_search_html(effective_query, page_num, cookie_file=cookie_file)
             if _is_challenge_page(html):
-                errors.append(f"page {page_num}: AliExpress challenge/captcha")
-                if page_num == 1:
-                    break
-                continue
+                return page_num, [], "AliExpress challenge/captcha"
             payloads = _extract_json_objects(html)
-            page_products = _product_nodes(payloads)
-            pages_fetched += 1
-            raw_products.extend(page_products)
+            return page_num, _product_nodes(payloads), None
         except Exception as exc:
-            errors.append(f"page {page_num}: {exc}")
-            if page_num == 1:
-                break
-        if len(raw_products) >= target:
-            break
+            return page_num, [], str(exc)
+
+    page_num, page_products, error = fetch_page_products(1)
+    if error:
+        errors.append(f"page {page_num}: {error}")
+    else:
+        pages_fetched += 1
+        raw_products.extend(page_products)
+
+    remaining_pages = list(range(2, pages + 1)) if not error and len(raw_products) < target else []
+    if remaining_pages:
+        workers = max(1, min(int(kwargs.get("page_workers") or 2), len(remaining_pages), 3))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(fetch_page_products, page_num) for page_num in remaining_pages]
+            for future in as_completed(futures):
+                page_num, page_products, error = future.result()
+                if error:
+                    errors.append(f"page {page_num}: {error}")
+                    continue
+                pages_fetched += 1
+                raw_products.extend(page_products)
+                if len(raw_products) >= target:
+                    break
 
     seen: set[str] = set()
     items: list[dict[str, Any]] = []
@@ -787,6 +1257,31 @@ def collect_results(
         if len(items) >= target:
             break
 
+    if enrich_variant_details and variant_detail_limit > 0:
+        variant_indexes = [
+            index
+            for index, item in enumerate(items)
+            if item.get("has_variants") and not item.get("variants") and item.get("url")
+        ][:variant_detail_limit]
+        if variant_indexes:
+            with ThreadPoolExecutor(max_workers=min(variant_detail_workers, len(variant_indexes))) as executor:
+                future_to_index = {
+                    executor.submit(
+                        _enrich_item_variants,
+                        items[index],
+                        cookie_file,
+                        usd_clp_rate,
+                        price_includes_chile_vat,
+                    ): index
+                    for index in variant_indexes
+                }
+                for future in as_completed(future_to_index):
+                    index = future_to_index[future]
+                    enriched, warning = future.result()
+                    items[index] = enriched
+                    if warning:
+                        warnings_list.append(f"{items[index].get('id')}: {warning}")
+
     meta = {
         "total": len(items),
         "total_matches": len(items),
@@ -801,8 +1296,13 @@ def collect_results(
         "effective_query": effective_query,
         "usd_clp_rate": usd_clp_rate,
         "price_includes_chile_vat": price_includes_chile_vat,
+        "enrich_variant_details": enrich_variant_details,
+        "variant_detail_limit": variant_detail_limit,
+        "variant_details_enriched": sum(1 for item in items if item.get("variant_source") == "detail"),
         "elapsed_seconds": round(time.perf_counter() - started, 2),
     }
+    if warnings_list:
+        meta["variant_warnings"] = warnings_list[:20]
     if errors:
         meta["errors"] = errors
         meta["warning"] = "AliExpress no entrego todos los datos solicitados."
