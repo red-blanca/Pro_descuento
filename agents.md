@@ -346,9 +346,9 @@ Los scrapers viven en carpetas independientes. Ya **no tienen backends HTTP ni f
 - Fuentes: `jumbo`, `santaisabel`, `unimarc`, `alvi`, `lider`, `acuenta`, `tottus`.
 - La busqueda global usa runners en `global_search.py` con el mismo contrato `fetch_categories()`, `collect_results(...) -> (items, meta)` y `apply_filters(...)`.
 - La UI no mezcla estas fuentes en los checkboxes del radar global; viven en la pestaña separada "Supermercados" y llaman al mismo endpoint `/api/global-search`.
-- VTEX: `jumbo`, `santaisabel`, `unimarc`, `alvi`. El scraper intenta API VTEX clasica y tiene fallback defensivo por HTML embebido cuando el sitio no expone JSON directo.
+- VTEX/SMU: `jumbo`, `santaisabel`, `unimarc`, `alvi`. El scraper intenta API VTEX clasica y tiene fallback defensivo por HTML embebido cuando el sitio no expone JSON directo. Jumbo usa `https://bff.jumbo.cl/catalog/plp`; Santa Isabel expone `https://bff.santaisabel.cl/catalog/plp` en navegador, pero puede responder 401 desde requests sin token/sesion. Alvi usa `https://bff-alvi-web.alvi.cl/categories/` y `https://bff-alvi-web.alvi.cl/products/intelligence-search-plp`.
 - Walmart: `lider`, `acuenta`. Las categorias son curadas; productos requieren configurar `LIDER_API_TEMPLATE` / `ACUENTA_API_TEMPLATE` o `api_template` en `lider_scraper/lider_stores.py`.
-- Falabella: `tottus`. Las categorias son curadas; productos requieren `TOTTUS_API_TEMPLATE` o `API_TEMPLATE_DEFAULT` en `tottus_scraper/tottus.py`.
+- Falabella: `tottus`. Las categorias son curadas; productos requieren `TOTTUS_API_TEMPLATE` o `API_TEMPLATE_DEFAULT` en `tottus_scraper/tottus.py`. La PLP real vive en rutas tipo `https://www.tottus.cl/tottus-cl/lista/CATG27055/Despensa`; `www.tottus.cl` puede requerir Cloudflare challenge para requests directos.
 - Si Walmart/Falabella o una tienda bloquea el endpoint, debe devolver `[]` con `meta["warning"]` sin romper la busqueda conjunta.
 
 > Los archivos `server.py`, `server_http.py`, `run_dev.py` y carpetas `web/` dentro de cada scraper son **legado inactivo**. No borrarlos pero no depender de ellos.
@@ -597,3 +597,16 @@ El proyecto crece por fuentes. Mantener cada scraper aislado como modulo Python,
 - `server.py` para exponer la API de busqueda global.
 - `web/src/global-search/` para la experiencia de usuario.
 - `agents.md` para que futuras IA no tengan que redescubrir la arquitectura.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, invoke the `skill` tool with `skill: "graphify"` before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

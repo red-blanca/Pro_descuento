@@ -63,6 +63,22 @@ def _fetch_json(url: str, host: str) -> Any:
     return json.loads(text)
 
 
+def _post_json(url: str, host: str, payload: dict[str, Any]) -> Any:
+    headers = dict(DEFAULT_HEADERS)
+    headers["Origin"] = host
+    headers["Referer"] = f"{host}/"
+    headers["Content-Type"] = "application/json"
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+        raw = response.read()
+        if (response.headers.get("Content-Encoding") or "").lower() == "gzip":
+            raw = gzip.decompress(raw)
+        charset = response.headers.get_content_charset() or "utf-8"
+        text = raw.decode(charset, errors="replace")
+    return json.loads(text)
+
+
 def _fetch_text(url: str, host: str) -> str:
     headers = dict(DEFAULT_HEADERS)
     headers["Origin"] = host
@@ -163,10 +179,18 @@ def fetch_categories(store: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _fetch_categories_from_html(store: dict[str, Any]) -> list[dict[str, Any]]:
     host = store["host"]
+    if store.get("bff_categories_url"):
+        try:
+            data = _fetch_json(str(store["bff_categories_url"]), host)
+            categories = _flatten_category_tree(data, host)
+            if categories:
+                return categories
+        except Exception:
+            pass
     try:
         text = _fetch_text(host, host)
     except Exception:
-        return []
+        text = ""
 
     ignored = (
         "busca",
@@ -209,6 +233,75 @@ def _fetch_categories_from_html(store: dict[str, Any]) -> list[dict[str, Any]]:
                 "has_children": False,
             }
         )
+    if categories:
+        return categories
+    return _fetch_cms_category_slugs(store)
+
+
+def _flatten_category_tree(data: Any, host: str) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+
+    def walk(nodes: Any, parents: list[str], parent_id: str, level: int) -> None:
+        if not isinstance(nodes, list):
+            return
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            raw_url = str(node.get("url") or "")
+            path = urllib.parse.urlparse(raw_url).path.strip("/") if raw_url else ""
+            cat_id = path or str(node.get("id") or node.get("slug") or node.get("reference") or "").strip()
+            name = str(node.get("name") or node.get("label") or _label_from_slug(cat_id)).strip()
+            children = node.get("children") or node.get("subCategories") or []
+            label = " / ".join([*parents, name]) if parents else name
+            if cat_id and name:
+                flattened.append({
+                    "id": cat_id,
+                    "value": cat_id,
+                    "label": label,
+                    "name": name,
+                    "url": f"{host}/{cat_id}" if not raw_url.startswith("http") else raw_url,
+                    "depth": level,
+                    "parent_id": parent_id or "",
+                    "has_children": bool(children) or bool(node.get("hasChildren")),
+                })
+            walk(children, [*parents, name], cat_id, level + 1)
+
+    walk(data, [], "", 0)
+    return flattened
+
+
+def _fetch_cms_category_slugs(store: dict[str, Any]) -> list[dict[str, Any]]:
+    host = store["host"]
+    source = store["source"]
+    asset_host = {
+        "jumbo": "https://assets.jumbo.cl",
+        "santaisabel": "https://assets.santaisabel.cl",
+    }.get(source)
+    if not asset_host:
+        return []
+    try:
+        data = _fetch_json(f"{asset_host}/json/cms/list-category.json", host)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    categories: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in data:
+        slug = str(raw or "").strip().strip("/")
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        categories.append({
+            "id": slug,
+            "value": slug,
+            "label": _label_from_slug(slug),
+            "name": _label_from_slug(slug),
+            "url": f"{host}/{slug}",
+            "depth": max(0, slug.count("/")),
+            "parent_id": "/".join(slug.split("/")[:-1]),
+            "has_children": False,
+        })
     return categories
 
 
@@ -392,6 +485,142 @@ def _fetch_html_products(store: dict[str, Any], category: dict[str, Any] | None,
     return items, {"html_url": url, "html_products_raw": len(raw)}
 
 
+def _facet_path(store: dict[str, Any], category: dict[str, Any] | None, category_id: str) -> str:
+    host = store["host"]
+    if category and category.get("url"):
+        path = urllib.parse.urlparse(str(category["url"])).path
+    else:
+        path = f"/{category_id.strip('/')}"
+    if path.startswith(host):
+        path = urllib.parse.urlparse(path).path
+    return "/" + path.strip("/")
+
+
+def _fetch_cencosud_bff_products(store: dict[str, Any], category: dict[str, Any] | None, category_id: str, query: str, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    endpoint = str(store.get("bff_plp_url") or "")
+    store_code = str(store.get("bff_store") or "")
+    if not endpoint or not store_code:
+        return [], {}
+    facet_path = _facet_path(store, category, category_id) if category_id else ""
+    depth = max(1, facet_path.strip("/").count("/") + 1) if facet_path else 1
+    payload: dict[str, Any] = {
+        "store": store_code,
+        "collections": [],
+        "fullText": query.strip(),
+        "brands": [],
+        "hideUnavailableItems": False,
+        "from": 0,
+        "to": max(0, min(limit, PAGE_SIZE) - 1),
+        "orderBy": "",
+        "selectedFacets": [],
+        "promotionalCards": True,
+        "sponsoredProducts": True,
+    }
+    if facet_path:
+        payload["selectedFacets"] = [{"key": f"category{depth}", "value": facet_path}]
+    data = _post_json(endpoint, store["host"], payload)
+    raw = data.get("products") if isinstance(data, dict) else []
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for product in raw if isinstance(raw, list) else []:
+        if not isinstance(product, dict):
+            continue
+        normalized = _normalize_embedded_product(product, store, len(items) + 1)
+        pid = str(normalized.get("id") or "")
+        if pid and pid in seen:
+            continue
+        seen.add(pid)
+        if normalized.get("title") and normalized.get("price", 0) > 0:
+            items.append(normalized)
+        if len(items) >= limit:
+            break
+    return items, {"bff_url": endpoint, "bff_payload": payload, "bff_products_raw": len(raw) if isinstance(raw, list) else 0}
+
+
+def _normalize_alvi_product(product: dict[str, Any], store: dict[str, Any], position: int) -> dict[str, Any]:
+    host = store["host"]
+    source = store["source"]
+    seller = product.get("sellers", [{}])[0] if isinstance(product.get("sellers"), list) and product.get("sellers") else {}
+    steps = product.get("priceSteps") if isinstance(product.get("priceSteps"), list) else []
+    step_prices = [_as_int(step.get("promotionalPrice")) for step in steps if isinstance(step, dict)]
+    step_prices = [value for value in step_prices if value > 0]
+    price = _as_int(
+        min(step_prices) if step_prices else product.get("price") or product.get("sellingPrice") or product.get("bestPrice") or seller.get("price")
+    )
+    list_price = _as_int(product.get("listPrice") or product.get("regularPrice") or seller.get("listPrice") or seller.get("price") or price)
+    discount = 0
+    if list_price > price > 0:
+        discount = round((list_price - price) * 100 / list_price, 1)
+    slug = str(product.get("linkText") or product.get("slug") or "").strip()
+    link = str(product.get("url") or product.get("link") or "")
+    if not link and slug:
+        link = f"{host}/{slug}/p"
+    if link and not link.startswith("http"):
+        link = f"{host}/{link.lstrip('/')}"
+    image = str(product.get("image") or product.get("imageUrl") or product.get("imageURL") or "")
+    if not image and isinstance(product.get("images"), list) and product["images"]:
+        first = product["images"][0]
+        image = str(first.get("url") if isinstance(first, dict) else first)
+    return {
+        "id": str(product.get("productId") or product.get("itemId") or product.get("sku") or position),
+        "sku": str(product.get("sku") or product.get("itemId") or ""),
+        "title": str(product.get("nameComplete") or product.get("name") or product.get("title") or "").strip(),
+        "name": str(product.get("nameComplete") or product.get("name") or product.get("title") or "").strip(),
+        "brand": str(product.get("brand") or product.get("brandName") or ""),
+        "store": store.get("store_label") or source.title(),
+        "group": store.get("group") or "SMU",
+        "price": price,
+        "formatted_price": _money(price),
+        "price_original": list_price,
+        "formatted_original_price": _money(list_price),
+        "link": link,
+        "url": link,
+        "image": image,
+        "category": " / ".join(str(value).strip("/") for value in product.get("categories", []) if value) if isinstance(product.get("categories"), list) else str(product.get("category") or product.get("categoryName") or ""),
+        "discount_percent": discount,
+        "available": bool(product.get("available", True)),
+        "position": position,
+        "source": source,
+    }
+
+
+def _fetch_alvi_bff_products(store: dict[str, Any], category: dict[str, Any] | None, category_id: str, query: str, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    endpoint = str(store.get("bff_products_url") or "")
+    if not endpoint:
+        return [], {}
+    params = {
+        "from": "0",
+        "to": str(max(0, min(limit, PAGE_SIZE) - 1)),
+        "hideUnavailableItems": "1",
+    }
+    if query.strip():
+        params["query"] = query.strip()
+    if category_id:
+        params["category"] = category_id.strip("/")
+    url = f"{endpoint}?{urllib.parse.urlencode(params)}"
+    data = _fetch_json(url, store["host"])
+    raw = []
+    if isinstance(data, dict):
+        raw = data.get("availableProducts") or data.get("products") or data.get("items") or []
+    elif isinstance(data, list):
+        raw = data
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for product in raw if isinstance(raw, list) else []:
+        if not isinstance(product, dict):
+            continue
+        normalized = _normalize_alvi_product(product, store, len(items) + 1)
+        pid = str(normalized.get("id") or "")
+        if pid and pid in seen:
+            continue
+        seen.add(pid)
+        if normalized.get("title") and normalized.get("price", 0) > 0:
+            items.append(normalized)
+        if len(items) >= limit:
+            break
+    return items, {"bff_url": url, "bff_products_raw": len(raw) if isinstance(raw, list) else 0}
+
+
 # ---------------------------------------------------------------------------
 # Busqueda por categoria
 # ---------------------------------------------------------------------------
@@ -432,6 +661,49 @@ def collect_results(
     if max_pages and max_pages > 0:
         pages_needed = min(pages_needed, max_pages)
     pages_needed = max(1, pages_needed)
+
+    bff_meta: dict[str, Any] = {}
+    try:
+        if store.get("bff_plp_url"):
+            items, bff_meta = _fetch_cencosud_bff_products(store, category, category_id, cleaned_query, target)
+            if items:
+                return items, {
+                    "source": source,
+                    "store": store.get("store_label") or source,
+                    "total": len(items),
+                    "total_matches": len(items),
+                    "fetched_raw": bff_meta.get("bff_products_raw", len(items)),
+                    "pages_fetched": 1,
+                    "pages_requested": pages_needed,
+                    "page_size": PAGE_SIZE,
+                    "category_id": category_id,
+                    "category": category.get("label") if category else "",
+                    "effective_query": cleaned_query,
+                    "search_url": bff_meta.get("bff_url"),
+                    "query_mode": "cencosud_bff",
+                    "elapsed_seconds": round(time.perf_counter() - started, 2),
+                }
+        if store.get("bff_products_url"):
+            items, bff_meta = _fetch_alvi_bff_products(store, category, category_id, cleaned_query, target)
+            if items:
+                return items, {
+                    "source": source,
+                    "store": store.get("store_label") or source,
+                    "total": len(items),
+                    "total_matches": len(items),
+                    "fetched_raw": bff_meta.get("bff_products_raw", len(items)),
+                    "pages_fetched": 1,
+                    "pages_requested": pages_needed,
+                    "page_size": PAGE_SIZE,
+                    "category_id": category_id,
+                    "category": category.get("label") if category else "",
+                    "effective_query": cleaned_query,
+                    "search_url": bff_meta.get("bff_url"),
+                    "query_mode": "smu_bff",
+                    "elapsed_seconds": round(time.perf_counter() - started, 2),
+                }
+    except Exception:
+        bff_meta = {}
 
     base = f"{host}/api/catalog_system/pub/products/search"
 
