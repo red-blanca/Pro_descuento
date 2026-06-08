@@ -194,6 +194,13 @@ Fuentes soportadas:
 - `descuentosrata`
 - `pcfactory`
 - `aliexpress`
+- `jumbo`
+- `santaisabel`
+- `unimarc`
+- `alvi`
+- `lider`
+- `acuenta`
+- `tottus`
 
 Flujo:
 
@@ -217,7 +224,7 @@ Campos de configuracion global relevantes:
 - `smart_filter`
 - `sort_price`
 - `include_international`
-- Campos especificos por fuente: `facebook_radius_km`, `pulga_category`, `knasta_retails`, `solotodo_category_id`, `travel_category_id`, `tuganga_stores`, `descuentosrata_all`, `pcfactory_word`, `pcfactory_category_id`, `aliexpress_word`, `aliexpress_category_id`, etc.
+- Campos especificos por fuente: `facebook_radius_km`, `pulga_category`, `knasta_retails`, `solotodo_category_id`, `travel_category_id`, `tuganga_stores`, `descuentosrata_all`, `pcfactory_word`, `pcfactory_category_id`, `aliexpress_word`, `aliexpress_category_id`, `jumbo_category_id`, `santaisabel_category_id`, `unimarc_category_id`, `alvi_category_id`, `lider_category_id`, `acuenta_category_id`, `tottus_category_id`, etc.
 
 Importante:
 
@@ -252,6 +259,7 @@ Modulo de busqueda global:
 - `web/src/global-search/globalSearchNodes.js`: definicion de nodos/fuentes visuales.
 - `web/src/global-search/soundService.js`: sonidos/feedback.
 - `web/src/global-search/matrix-theme.css`: tema visual de esta experiencia.
+- `web/src/components/SupermercadosPanel.jsx`: pestaña separada de supermercados. Usa los mismos endpoints `/api/global-search` y `/api/global-categories`, pero limita `sources` a Jumbo, Santa Isabel, Unimarc, Alvi, Lider, acuenta y Tottus.
 
 Reglas para cambios UI:
 
@@ -332,6 +340,16 @@ Los scrapers viven en carpetas independientes. Ya **no tienen backends HTTP ni f
 - Impuestos de internacion a Chile:
   - Compras hasta US$ 500: IVA 19%; arancel aduanero 0%.
   - Compras sobre US$ 500: arancel 6% sobre CIF, IVA 19% sobre CIF + arancel, y costo estimado de internacion courier de $15.000 CLP.
+
+### Supermercados (`vtex_scraper/`, `lider_scraper/`, `tottus_scraper/`)
+
+- Fuentes: `jumbo`, `santaisabel`, `unimarc`, `alvi`, `lider`, `acuenta`, `tottus`.
+- La busqueda global usa runners en `global_search.py` con el mismo contrato `fetch_categories()`, `collect_results(...) -> (items, meta)` y `apply_filters(...)`.
+- La UI no mezcla estas fuentes en los checkboxes del radar global; viven en la pestaña separada "Supermercados" y llaman al mismo endpoint `/api/global-search`.
+- VTEX: `jumbo`, `santaisabel`, `unimarc`, `alvi`. El scraper intenta API VTEX clasica y tiene fallback defensivo por HTML embebido cuando el sitio no expone JSON directo.
+- Walmart: `lider`, `acuenta`. Las categorias son curadas; productos requieren configurar `LIDER_API_TEMPLATE` / `ACUENTA_API_TEMPLATE` o `api_template` en `lider_scraper/lider_stores.py`.
+- Falabella: `tottus`. Las categorias son curadas; productos requieren `TOTTUS_API_TEMPLATE` o `API_TEMPLATE_DEFAULT` en `tottus_scraper/tottus.py`.
+- Si Walmart/Falabella o una tienda bloquea el endpoint, debe devolver `[]` con `meta["warning"]` sin romper la busqueda conjunta.
 
 > Los archivos `server.py`, `server_http.py`, `run_dev.py` y carpetas `web/` dentro de cada scraper son **legado inactivo**. No borrarlos pero no depender de ellos.
 

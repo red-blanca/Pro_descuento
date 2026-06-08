@@ -3,10 +3,12 @@ import { motion as Motion } from 'motion/react'
 import { Cookie, ShieldCheck, ShieldAlert, ShieldX, X } from 'lucide-react'
 import './App.css'
 import GlobalSearchView from './global-search/GlobalSearchView.jsx'
+import SupermercadosPanel from './components/SupermercadosPanel.jsx'
 import { soundService } from './global-search/soundService.js'
 
 function App() {
   const globalAbortRef = useRef(false)
+  const [activeSection, setActiveSection] = useState('global')
   const [globalForm, setGlobalForm] = useState({
     query: '',
     scan_scope: 'complete',
@@ -81,6 +83,13 @@ function App() {
     tuganga: [],
     pcfactory: [],
     aliexpress: [],
+    jumbo: [],
+    santaisabel: [],
+    unimarc: [],
+    alvi: [],
+    lider: [],
+    acuenta: [],
+    tottus: [],
   })
   const [globalCategoriesLoading, setGlobalCategoriesLoading] = useState(false)
   const [categorySuggestion, setCategorySuggestion] = useState(null)
@@ -558,35 +567,58 @@ function App() {
 
   return (
     <>
-      <GlobalSearchView
-        globalForm={globalForm}
-        onGlobalChange={onGlobalChange}
-        toggleGlobalSource={toggleGlobalSource}
-        globalCategories={globalCategories}
-        globalCategoriesLoading={globalCategoriesLoading}
-        categorySuggestion={categorySuggestion}
-        onResetAllCategories={resetAllCategories}
-        onReapplyCategorySuggestions={reapplyCategorySuggestions}
-        globalResult={globalResult}
-        globalStatus={globalStatus}
-        globalLoading={globalLoading}
-        globalRunMs={globalRunMs}
-        canGlobalSubmit={canGlobalSubmit}
-        onRun={runGlobalSearch}
-        onAbort={abortGlobalSearch}
-        onDownload={downloadGlobalJson}
-        cookieHealth={cookieHealth}
-        facebookCookieHealth={facebookCookieHealth}
-        onOpenCookieModal={() => {
-          setCookieMsg('')
-          setFacebookCookieMsg('')
-          setAliexpressCookieMsg('')
-          setCookieModalOpen(true)
-          fetchCookieStatus()
-          fetchFacebookCookieStatus()
-          fetchAliexpressCookieStatus()
-        }}
-      />
+      <nav className="fixed top-3 left-1/2 z-[250] flex -translate-x-1/2 overflow-hidden border-2 border-matrix-green bg-black font-mono shadow-[0_0_30px_rgba(51,255,102,0.22)]">
+        {[
+          ['global', 'Radar Global'],
+          ['supermercados', 'Supermercados'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${activeSection === id ? 'bg-matrix-green text-black' : 'bg-black text-matrix-green hover:bg-matrix-green/10'}`}
+            onClick={() => {
+              soundService.playClick()
+              setActiveSection(id)
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {activeSection === 'global' ? (
+        <GlobalSearchView
+          globalForm={globalForm}
+          onGlobalChange={onGlobalChange}
+          toggleGlobalSource={toggleGlobalSource}
+          globalCategories={globalCategories}
+          globalCategoriesLoading={globalCategoriesLoading}
+          categorySuggestion={categorySuggestion}
+          onResetAllCategories={resetAllCategories}
+          onReapplyCategorySuggestions={reapplyCategorySuggestions}
+          globalResult={globalResult}
+          globalStatus={globalStatus}
+          globalLoading={globalLoading}
+          globalRunMs={globalRunMs}
+          canGlobalSubmit={canGlobalSubmit}
+          onRun={runGlobalSearch}
+          onAbort={abortGlobalSearch}
+          onDownload={downloadGlobalJson}
+          cookieHealth={cookieHealth}
+          facebookCookieHealth={facebookCookieHealth}
+          onOpenCookieModal={() => {
+            setCookieMsg('')
+            setFacebookCookieMsg('')
+            setAliexpressCookieMsg('')
+            setCookieModalOpen(true)
+            fetchCookieStatus()
+            fetchFacebookCookieStatus()
+            fetchAliexpressCookieStatus()
+          }}
+        />
+      ) : (
+        <SupermercadosPanel />
+      )}
 
       {cookieModalOpen && (
         <Motion.div className="gs-matrix-root fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm font-mono text-matrix-green" onClick={() => { soundService.playCancel(); setCookieModalOpen(false) }}>

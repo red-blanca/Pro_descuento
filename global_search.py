@@ -35,6 +35,9 @@ for module_dir in [
     ROOT / "descuentosrata_scraper",
     ROOT / "pcfactory_scraper",
     ROOT / "aliexpress_scraper",
+    ROOT / "vtex_scraper",
+    ROOT / "lider_scraper",
+    ROOT / "tottus_scraper",
 ]:
     module_path = str(module_dir)
     if module_path not in sys.path:
@@ -52,7 +55,17 @@ DEFAULT_SOURCES = [
     "descuentosrata",
     "pcfactory",
     "aliexpress",
+    "jumbo",
+    "santaisabel",
+    "unimarc",
+    "alvi",
+    "lider",
+    "acuenta",
+    "tottus",
 ]
+
+
+SUPERMARKET_SOURCES = ("jumbo", "santaisabel", "unimarc", "alvi", "lider", "acuenta", "tottus")
 
 
 def _safe_name(value: str) -> str:
@@ -514,6 +527,62 @@ def _run_aliexpress(cfg: dict[str, Any]) -> dict[str, Any]:
     return _source_payload("aliexpress", cfg["query"], items, meta)
 
 
+def _run_supermarket(source: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    module = __import__(source)
+    items, meta = module.collect_results(
+        query=cfg["query"],
+        limit=_limit_for(cfg["scan_scope"], cfg["max_items_per_source"], 60),
+        scan_scope=cfg["scan_scope"],
+        max_pages=0 if cfg["scan_scope"] == "complete" else 1,
+        category_id=cfg.get(f"{source}_category_id", ""),
+    )
+    items = module.apply_filters(
+        items,
+        min_price=cfg["min_price"],
+        max_price=cfg["max_price"],
+        word=cfg.get(f"{source}_word", ""),
+        include_words=cfg["include_words"],
+        exclude_words=cfg["exclude_words"],
+    )
+    items = _filter_words(
+        items,
+        cfg["include_words"],
+        cfg["exclude_words"],
+        strict=cfg.get("strict_mode", False),
+        smart_filter=cfg.get("smart_filter", True),
+        query=cfg["query"],
+    )
+    return _source_payload(source, cfg["query"], items, meta)
+
+
+def _run_jumbo(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _run_supermarket("jumbo", cfg)
+
+
+def _run_santaisabel(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _run_supermarket("santaisabel", cfg)
+
+
+def _run_unimarc(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _run_supermarket("unimarc", cfg)
+
+
+def _run_alvi(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _run_supermarket("alvi", cfg)
+
+
+def _run_lider(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _run_supermarket("lider", cfg)
+
+
+def _run_acuenta(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _run_supermarket("acuenta", cfg)
+
+
+def _run_tottus(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _run_supermarket("tottus", cfg)
+
+
 RUNNERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "mercadolibre": _run_mercadolibre,
     "facebook_marketplace": _run_facebook,
@@ -525,6 +594,13 @@ RUNNERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "descuentosrata": _run_descuentosrata,
     "pcfactory": _run_pcfactory,
     "aliexpress": _run_aliexpress,
+    "jumbo": _run_jumbo,
+    "santaisabel": _run_santaisabel,
+    "unimarc": _run_unimarc,
+    "alvi": _run_alvi,
+    "lider": _run_lider,
+    "acuenta": _run_acuenta,
+    "tottus": _run_tottus,
 }
 
 
@@ -565,7 +641,7 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
     tuganga_mode = str(raw.get("tuganga_mode") or "all_offers").strip() or "all_offers"
     if query and tuganga_mode != "search":
         tuganga_mode = "search"
-    return {
+    cfg = {
         "query": query,
         "sources": sources or DEFAULT_SOURCES,
         "scan_scope": scope,
@@ -615,6 +691,10 @@ def build_config(raw: dict[str, Any]) -> dict[str, Any]:
         "descuentosrata_all": bool(raw.get("descuentosrata_all", True)),
         "descuentosrata_limit": max(1, min(int(raw.get("descuentosrata_limit") or 10000), 10000)),
     }
+    for source in SUPERMARKET_SOURCES:
+        cfg[f"{source}_category_id"] = _raw_category_str(raw, f"{source}_category_id", "")
+        cfg[f"{source}_word"] = str(raw.get(f"{source}_word") or "").strip()
+    return cfg
 
 
 def run_global_search(
@@ -632,6 +712,7 @@ def run_global_search(
         cfg.get("tuganga_categories"),
         cfg.get("pcfactory_category_id"),
         cfg.get("aliexpress_category_id"),
+        *(cfg.get(f"{source}_category_id") for source in SUPERMARKET_SOURCES),
     ])
     if not cfg["query"] and not has_category and any(source != "descuentosrata" for source in cfg["sources"]):
         raise ValueError("Debes indicar una palabra clave o seleccionar una categoría.")

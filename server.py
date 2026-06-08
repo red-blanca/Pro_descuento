@@ -28,6 +28,9 @@ for module_dir in [
     ROOT / "descuentosrata_scraper",
     ROOT / "pcfactory_scraper",
     ROOT / "aliexpress_scraper",
+    ROOT / "vtex_scraper",
+    ROOT / "lider_scraper",
+    ROOT / "tottus_scraper",
 ]:
     module_path = str(module_dir)
     if module_path not in sys.path:
@@ -36,6 +39,8 @@ for module_dir in [
 from pydantic import BaseModel, Field
 import global_search
 import facebook_api as fb
+
+SUPERMARKET_SOURCES = ("jumbo", "santaisabel", "unimarc", "alvi", "lider", "acuenta", "tottus")
 
 # Async job store for long-running global searches
 _JOBS: dict[str, dict] = {}
@@ -140,6 +145,13 @@ class GlobalSearchPayload(BaseModel):
     aliexpress_word: str = Field(default="")
     aliexpress_category_id: str = Field(default="")
     aliexpress_price_includes_chile_vat: bool = Field(default=True)
+    jumbo_category_id: str = Field(default="")
+    santaisabel_category_id: str = Field(default="")
+    unimarc_category_id: str = Field(default="")
+    alvi_category_id: str = Field(default="")
+    lider_category_id: str = Field(default="")
+    acuenta_category_id: str = Field(default="")
+    tottus_category_id: str = Field(default="")
     descuentosrata_all: bool = Field(default=True)
     descuentosrata_limit: int = Field(default=10000)
     strict_mode: bool = Field(default=False)
@@ -220,6 +232,7 @@ def global_search_start(payload: GlobalSearchPayload) -> dict:
         cfg.get("tuganga_categories"),
         cfg.get("pcfactory_category_id"),
         cfg.get("aliexpress_category_id"),
+        *(cfg.get(f"{source}_category_id") for source in SUPERMARKET_SOURCES),
     ])
     if not cfg["query"] and not has_category and any(s != "descuentosrata" for s in cfg["sources"]):
         raise HTTPException(status_code=400, detail="Debes indicar una búsqueda o seleccionar una categoría.")
@@ -311,6 +324,13 @@ def global_categories(
         "tuganga": [],
         "pcfactory": [],
         "aliexpress": [],
+        "jumbo": [],
+        "santaisabel": [],
+        "unimarc": [],
+        "alvi": [],
+        "lider": [],
+        "acuenta": [],
+        "tottus": [],
     }
     errors: dict[str, str] = {}
 
@@ -411,6 +431,25 @@ def global_categories(
         ]
     except Exception as exc:
         errors["aliexpress"] = str(exc)
+
+    for source in SUPERMARKET_SOURCES:
+        try:
+            module = __import__(source)
+            categories[source] = [
+                {
+                    "id": str(category.get("id") or ""),
+                    "value": str(category.get("value") or category.get("id") or ""),
+                    "label": str(category.get("label") or category.get("name") or ""),
+                    "name": str(category.get("name") or ""),
+                    "depth": category.get("depth", 0),
+                    "parent_id": str(category.get("parent_id") or ""),
+                    "has_children": bool(category.get("has_children")),
+                }
+                for category in module.fetch_categories()
+                if category.get("id")
+            ]
+        except Exception as exc:
+            errors[source] = str(exc)
 
     suggested = {}
     try:
