@@ -1,16 +1,16 @@
 # Graph Report - Pro_descuento__v2  (2026-06-09)
 
 ## Corpus Check
-- 274 files · ~221,739 words
+- 274 files · ~222,009 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2143 nodes · 3563 edges · 182 communities (143 shown, 39 thin omitted)
+- 2144 nodes · 3567 edges · 188 communities (147 shown, 41 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 7 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b595ea1a`
+- Built from commit: `decfc694`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -155,6 +155,12 @@
 - [[_COMMUNITY_Community 147|Community 147]]
 - [[_COMMUNITY_Community 148|Community 148]]
 - [[_COMMUNITY_Community 153|Community 153]]
+- [[_COMMUNITY_Community 182|Community 182]]
+- [[_COMMUNITY_Community 183|Community 183]]
+- [[_COMMUNITY_Community 184|Community 184]]
+- [[_COMMUNITY_Community 185|Community 185]]
+- [[_COMMUNITY_Community 186|Community 186]]
+- [[_COMMUNITY_Community 187|Community 187]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `cn()` - 271 edges
@@ -166,15 +172,15 @@
 7. `Guia de Contexto para Agentes de IA - Proyecto Pro Descuento` - 22 edges
 8. `Any` - 21 edges
 9. `Any` - 21 edges
-10. `Any` - 19 edges
+10. `Any` - 20 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `global_categories()` --calls--> `build_suggestions()`  [EXTRACTED]
+  server.py → category_suggest.py
 - `_filter_words()` --calls--> `normalize()`  [INFERRED]
   global_search.py → test_filter.py
 - `collect_results()` --calls--> `fetch_page()`  [INFERRED]
   vtex_scraper/vtex_core.py → knasta_scraper/knasta_api.py
-- `global_categories()` --calls--> `build_suggestions()`  [EXTRACTED]
-  server.py → category_suggest.py
 - `AlertDialogOverlay()` --calls--> `cn()`  [EXTRACTED]
   _design_import/components/ui/alert-dialog.tsx → _design_import/lib/utils.ts
 - `AlertDialogContent()` --calls--> `cn()`  [EXTRACTED]
@@ -183,7 +189,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (182 total, 39 thin omitted)
+## Communities (188 total, 41 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.08
@@ -202,8 +208,8 @@ Cohesion: 0.07
 Nodes (7): SUPERMARKET_SOURCES, GlobalSearchHUD(), getRunForNode(), GLOBAL_NODES, isNodeActive(), LOGS, SoundService
 
 ### Community 4 - "Community 4"
-Cohesion: 0.06
-Nodes (33): BaseModel, export_results(), preview_results(), SearchPayload, _build_options(), _cache_get(), _cache_key(), _cache_set() (+25 more)
+Cohesion: 0.18
+Nodes (16): _build_options(), _cache_get(), _cache_key(), _cache_set(), CookiePayload, count_results(), export_results(), preview_results() (+8 more)
 
 ### Community 5 - "Community 5"
 Cohesion: 0.04
@@ -234,8 +240,8 @@ Cohesion: 0.07
 Nodes (36): Action, ActionType, actionTypes, addToRemoveQueue(), dispatch(), genId(), listeners, memoryState (+28 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.09
-Nodes (34): build_suggestions(), _label_for_value(), _normalize(), Any, Sugerencia conservadora de categorías para búsqueda global (términos generales)., Elige categoría dominante por volumen; si hay empate, devuelve Todas ('')., _score_label(), suggest_by_label() (+26 more)
+Cohesion: 0.13
+Nodes (17): BaseModel, aliexpress_cookies_status(), CookiePayload, facebook_cookies_status(), _facebook_profile_status(), FacebookCookiePayload, _file_age_status(), global_categories() (+9 more)
 
 ### Community 13 - "Community 13"
 Cohesion: 0.09
@@ -342,8 +348,8 @@ Cohesion: 0.29
 Nodes (18): apply_filters(), _as_float(), _as_int(), _category_by_id(), _collect_acuenta_browser(), collect_results(), _configured_category_by_id(), _extract_price() (+10 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.27
-Nodes (21): apply_filters(), _as_float(), _as_int(), _browser_url(), _categories_for_query(), _category_by_id(), _collect_browser_results(), collect_results() (+13 more)
+Cohesion: 0.26
+Nodes (22): apply_filters(), _as_float(), _as_int(), _browser_url(), _categories_for_query(), _category_by_id(), _collect_browser_results(), collect_results() (+14 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.13
@@ -589,19 +595,35 @@ Nodes (3): Correr junto a todas las vistas, Correr solo TuGanga, TuGanga Scraper
 Cohesion: 0.50
 Nodes (3): Expanding the ESLint configuration, React + Vite, React Compiler
 
+### Community 182 - "Community 182"
+Cohesion: 0.26
+Nodes (9): _cache_get(), _cache_key(), _cache_set(), _collect(), count(), export(), preview(), _rows() (+1 more)
+
+### Community 183 - "Community 183"
+Cohesion: 0.41
+Nodes (11): build_suggestions(), _label_for_value(), _normalize(), Any, Sugerencia conservadora de categorías para búsqueda global (términos generales)., Elige categoría dominante por volumen; si hay empate, devuelve Todas ('')., _score_label(), suggest_by_label() (+3 more)
+
+### Community 184 - "Community 184"
+Cohesion: 0.29
+Nodes (7): global_search_poll(), _job_result_for_storage(), _prune_jobs_locked(), Run global search in background thread and store result in _JOBS., Drop old finished jobs so large result sets do not live forever in RAM., Keep only the fields needed by the API response; by_source duplicates items., _run_global_job()
+
+### Community 185 - "Community 185"
+Cohesion: 0.47
+Nodes (3): export_results(), preview_results(), SearchPayload
+
 ## Knowledge Gaps
 - **632 isolated node(s):** `PreToolUse`, `_inter`, `_jetbrainsMono`, `metadata`, `$schema` (+627 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **39 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **41 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `cn()` connect `Community 1` to `Community 64`, `Community 36`, `Community 40`, `Community 8`, `Community 11`, `Community 46`, `Community 15`, `Community 49`, `Community 50`, `Community 84`, `Community 55`, `Community 22`, `Community 54`, `Community 25`, `Community 59`, `Community 62`, `Community 63`?**
   _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **Why does `SearchPayload` connect `Community 35` to `Community 4`?**
+- **Why does `SearchPayload` connect `Community 35` to `Community 12`?**
   _High betweenness centrality (0.003) - this node is a cross-community bridge._
-- **Why does `GlobalSearchPayload` connect `Community 12` to `Community 4`?**
+- **Why does `SearchPayload` connect `Community 182` to `Community 12`?**
   _High betweenness centrality (0.002) - this node is a cross-community bridge._
 - **What connects `PreToolUse`, `_inter`, `_jetbrainsMono` to the rest of the system?**
   _680 weakly-connected nodes found - possible documentation gaps or missing edges._

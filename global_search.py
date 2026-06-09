@@ -629,9 +629,9 @@ def _raw_category_str(raw: dict[str, Any], key: str, default: str) -> str:
 
 
 def build_config(raw: dict[str, Any]) -> dict[str, Any]:
-    scope = str(raw.get("scan_scope") or "fast").strip()
+    scope = str(raw.get("scan_scope") or "complete").strip()
     if scope not in {"fast", "complete"}:
-        scope = "fast"
+        scope = "complete"
     sources = [str(s).strip() for s in raw.get("sources", DEFAULT_SOURCES) if str(s).strip() in RUNNERS]
     query = str(raw.get("query") or "").strip()
     pulga_category = _raw_category_str(raw, "pulga_category", "tecnologia")

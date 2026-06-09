@@ -750,8 +750,8 @@
     "semantic_hash": ""
   },
   "global_search.py": {
-    "mtime": 1780942978.423434,
-    "ast_hash": "16f41f944bfb341fa05e2e3668b68736",
+    "mtime": 1781026133.8296545,
+    "ast_hash": "cc6e60919e5efef2e4468336191d4d85",
     "semantic_hash": ""
   },
   "knasta_scraper/analyze.py": {
@@ -1075,8 +1075,8 @@
     "semantic_hash": ""
   },
   "tottus_scraper/tottus.py": {
-    "mtime": 1781023604.4104564,
-    "ast_hash": "e2b706f8645d1c57fb10ededf77d97ef",
+    "mtime": 1781025745.2771506,
+    "ast_hash": "b97f180e694cef50a3811004e757d971",
     "semantic_hash": ""
   },
   "travel_scraper/run_dev.py": {
@@ -1195,8 +1195,8 @@
     "semantic_hash": ""
   },
   "web/src/components/SupermercadosPanel.jsx": {
-    "mtime": 1780962377.1512501,
-    "ast_hash": "7d403f812ef2f56b1e460d458662d62b",
+    "mtime": 1781026133.8249288,
+    "ast_hash": "fc113413f95df62f97156b80faca11b1",
     "semantic_hash": ""
   },
   "web/src/global-search/GlobalSearchCategoryControls.jsx": {
@@ -1335,8 +1335,8 @@
     "semantic_hash": ""
   },
   "agents.md": {
-    "mtime": 1781023619.852117,
-    "ast_hash": "30b2e2afb874c1278ee70efc2c2ec634",
+    "mtime": 1781026141.6807287,
+    "ast_hash": "6514041385b0f90d85528d330337d2e2",
     "semantic_hash": ""
   },
   "app_vipent/app_vipent/README.md": {

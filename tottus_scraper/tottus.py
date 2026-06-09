@@ -32,6 +32,7 @@ HOST = "https://www.tottus.cl"
 API_ENV = "TOTTUS_API_TEMPLATE"
 # Ejemplo (confirmar): "{host}/tottus-cl/category/{category}?page={page}&limit={limit}"
 API_TEMPLATE_DEFAULT = ""
+OFFERS_CATEGORY_ID = "__offers__"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -44,6 +45,7 @@ DEFAULT_HEADERS = {
 }
 
 CATEGORIES: list[dict[str, Any]] = [
+    {"id": OFFERS_CATEGORY_ID, "name": "Ofertas"},
     {"id": "CATG27055/Despensa", "name": "Despensa"},
     {"id": "CATG27070/Frutas-y-Verduras", "name": "Frutas y Verduras"},
     {"id": "CATG27069/Carnes", "name": "Carnes"},
@@ -61,6 +63,17 @@ CATEGORIES: list[dict[str, Any]] = [
     {"id": "CATG29426/Perfumeria", "name": "Perfumeria"},
     {"id": "CATG27078/Mascotas", "name": "Mascotas"},
     {"id": "CATG27079/Hogar-y-Ferreteria", "name": "Hogar y Ferreteria"},
+]
+
+# Colecciones enlazadas desde /tottus-cl/content/ofertas-tottus.
+OFFER_COLLECTIONS = [
+    "CATG10215/Tottus-a-Lucas",
+    "CATG27092/Pollo",
+    "CATG10217/Abarrotes",
+    "CATG27134/Papeles-para-el-Hogar",
+    "CATG10222/Lacteos",
+    "CATG10223/Lavado-y-Aseo",
+    "CATG27088/Electro-y-Tecnologia",
 ]
 
 _NAME_KEYS = ("displayName", "name", "title", "productName", "description")
@@ -329,6 +342,13 @@ def _matches_query(product: dict[str, Any], query: str) -> bool:
     return bool(words) and all(word in text for word in words)
 
 
+def _has_discount(product: dict[str, Any]) -> bool:
+    return any(
+        isinstance(price, dict) and price.get("crossed") and _parse_clp(price.get("price")) > 0
+        for price in product.get("prices", [])
+    )
+
+
 def _collect_browser_results(
     query: str,
     category_id: str,
@@ -346,9 +366,17 @@ def _collect_browser_results(
     page_limit = 1
     raw_products: list[dict[str, Any]] = []
     search_url = _browser_url(query, category_id)
+    if category_id == OFFERS_CATEGORY_ID:
+        search_url = f"{HOST}/tottus-cl/content/ofertas-tottus"
     search_warning = ""
-    deadline = time.perf_counter() + 25
+    deadline = time.perf_counter() + (90 if category_id == OFFERS_CATEGORY_ID else 25)
     direct_search_succeeded = False
+    offer_stats = {
+        "collections_total": len(OFFER_COLLECTIONS),
+        "collections_scanned": 0,
+        "collections_with_products": 0,
+        "collections_blocked": 0,
+    }
 
     try:
         with sync_playwright() as playwright:
@@ -359,6 +387,12 @@ def _collect_browser_results(
                 browser = playwright.chromium.launch(**launch_options)
             except Exception:
                 browser = playwright.chromium.launch(headless=True)
+            page_options = {
+                "locale": "es-CL",
+                "ignore_https_errors": True,
+                "user_agent": DEFAULT_HEADERS["User-Agent"],
+                "extra_http_headers": {"Accept-Language": DEFAULT_HEADERS["Accept-Language"]},
+            }
             page = browser.new_page(
                 locale="es-CL",
                 ignore_https_errors=True,
@@ -368,7 +402,9 @@ def _collect_browser_results(
             page.set_default_timeout(5_000)
 
             targets: list[tuple[str, str, int]] = []
-            if category_id:
+            if category_id == OFFERS_CATEGORY_ID:
+                targets.extend(("", offer_category, 1) for offer_category in OFFER_COLLECTIONS)
+            elif category_id:
                 targets.append(("", category_id, page_limit))
             elif query:
                 targets.append((query, "", page_limit))
@@ -378,12 +414,20 @@ def _collect_browser_results(
                 if time.perf_counter() >= deadline:
                     search_warning = "Tottus: busqueda parcial por limite de tiempo."
                     break
+                if category_id == OFFERS_CATEGORY_ID:
+                    if offer_stats["collections_scanned"] > 0:
+                        page.close()
+                        page = browser.new_page(**page_options)
+                        page.set_default_timeout(5_000)
+                    offer_stats["collections_scanned"] += 1
                 for page_number in range(1, target_pages + 1):
                     current_url = _browser_url(target_query, target_category, page_number)
                     try:
                         page.goto(current_url, wait_until="domcontentloaded", timeout=10_000)
                     except Exception:
                         search_warning = "Tottus: una pagina no respondio dentro del limite de tiempo."
+                        if category_id == OFFERS_CATEGORY_ID:
+                            offer_stats["collections_blocked"] += 1
                         break
                     if "526" in page.title() or "invalid ssl" in page.title().lower():
                         if target_query:
@@ -404,6 +448,8 @@ def _collect_browser_results(
                             )
                             break
                         search_warning = "Tottus: la categoria fue bloqueada por Cloudflare."
+                        if category_id == OFFERS_CATEGORY_ID:
+                            offer_stats["collections_blocked"] += 1
                         continue
                     payload = json.loads(next_data.text_content() or "{}")
                     page_products = payload.get("props", {}).get("pageProps", {}).get("results", [])
@@ -411,17 +457,24 @@ def _collect_browser_results(
                         if target_query:
                             direct_search_succeeded = True
                         break
+                    if category_id == OFFERS_CATEGORY_ID:
+                        offer_stats["collections_with_products"] += 1
                     if target_query:
                         direct_search_succeeded = True
                     for product in page_products:
                         if not isinstance(product, dict):
                             continue
+                        if category_id == OFFERS_CATEGORY_ID and not _has_discount(product):
+                            continue
                         if query and not _matches_query(product, query):
                             continue
                         raw_products.append(product)
-                    if len(raw_products) >= limit or len(page_products) < 48:
+                    if (
+                        category_id != OFFERS_CATEGORY_ID
+                        and len(raw_products) >= limit
+                    ) or len(page_products) < 48:
                         break
-                if len(raw_products) >= limit:
+                if category_id != OFFERS_CATEGORY_ID and len(raw_products) >= limit:
                     break
                 if target_query and direct_search_succeeded:
                     break
@@ -442,9 +495,29 @@ def _collect_browser_results(
         seen.add(normalized["id"])
         if normalized["title"] and normalized["price"] > 0:
             items.append(normalized)
-        if len(items) >= limit:
+        if category_id != OFFERS_CATEGORY_ID and len(items) >= limit:
             break
     meta = {"search_url": search_url, "fetched_raw": len(raw_products)}
+    if category_id == OFFERS_CATEGORY_ID:
+        meta.update(offer_stats)
+        partial = (
+            offer_stats["collections_scanned"] < offer_stats["collections_total"]
+            or offer_stats["collections_blocked"] > 0
+        )
+        meta["partial"] = partial
+        if partial:
+            if len(raw_products) >= limit and offer_stats["collections_blocked"] == 0:
+                search_warning = (
+                    "Tottus Ofertas: resultados parciales por limite solicitado; "
+                    f"{offer_stats['collections_scanned']}/{offer_stats['collections_total']} "
+                    "colecciones revisadas, ninguna bloqueada."
+                )
+            else:
+                search_warning = (
+                    "Tottus Ofertas: resultados parciales; "
+                    f"{offer_stats['collections_scanned']}/{offer_stats['collections_total']} "
+                    f"colecciones revisadas, {offer_stats['collections_blocked']} bloqueadas."
+                )
     if not raw_products and not search_warning:
         search_warning = "Tottus: la pagina no contenia productos reconocibles."
     if search_warning:

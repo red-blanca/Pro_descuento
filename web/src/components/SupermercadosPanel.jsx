@@ -77,7 +77,7 @@ export default function SupermercadosPanel() {
   const [query, setQuery] = useState('')
   const [minPrice, setMinPrice] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
-  const [scanScope, setScanScope] = useState('fast')
+  const [scanScope, setScanScope] = useState('complete')
   const [results, setResults] = useState([])
   const [runs, setRuns] = useState([])
   const [status, setStatus] = useState('idle')
