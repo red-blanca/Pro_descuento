@@ -68,6 +68,7 @@ async function inspectTarget(browser, target) {
     ? await page.evaluate(() => {
         const text = document.documentElement.innerHTML
         const reactQuery = document.querySelector('#__REACT_QUERY_STATE__')?.textContent || ''
+        const nextData = document.querySelector('#__NEXT_DATA__')?.textContent || ''
         const scripts = [...document.scripts].map((script) => script.src).filter(Boolean).slice(0, 30)
         const links = [...document.querySelectorAll('a[href]')]
           .map((a) => a.href)
@@ -78,6 +79,8 @@ async function inspectTarget(browser, target) {
           url: location.href,
           htmlLength: text.length,
           reactQueryLength: reactQuery.length,
+          nextDataLength: nextData.length,
+          nextDataSample: nextData.slice(0, 2000),
           productIdCount: (text.match(/productId/g) || []).length,
           priceCount: (text.match(/price/g) || []).length,
           scripts,

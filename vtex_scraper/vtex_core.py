@@ -137,6 +137,24 @@ def fetch_categories(store: dict[str, Any]) -> list[dict[str, Any]]:
     source = store["source"]
     if source in _CATEGORY_CACHE:
         return _CATEGORY_CACHE[source]
+    configured = store.get("categories")
+    if isinstance(configured, list) and configured:
+        categories = [
+            {
+                "id": str(category_id),
+                "value": str(category_id),
+                "label": str(label),
+                "name": str(label),
+                "url": f"{host}/{str(category_id).strip('/')}",
+                "depth": 0,
+                "parent_id": "",
+                "has_children": False,
+            }
+            for category_id, label in configured
+            if category_id and label
+        ]
+        _CATEGORY_CACHE[source] = categories
+        return categories
 
     depth = int(store.get("tree_depth") or 3)
     url = f"{host}/api/catalog_system/pub/category/tree/{depth}"
@@ -161,6 +179,9 @@ def fetch_categories(store: dict[str, Any]) -> list[dict[str, Any]]:
                 flattened.append({
                     "id": cat_id,
                     "value": cat_id,
+                    "numeric_id": str(node.get("id") or ""),
+                    "fq": str(node.get("fq") or ""),
+                    "fq_description": str(node.get("fqDescription") or ""),
                     "label": label,
                     "name": name,
                     "url": str(node.get("url") or ""),
@@ -257,6 +278,9 @@ def _flatten_category_tree(data: Any, host: str) -> list[dict[str, Any]]:
                 flattened.append({
                     "id": cat_id,
                     "value": cat_id,
+                    "numeric_id": str(node.get("id") or ""),
+                    "fq": str(node.get("fq") or ""),
+                    "fq_description": str(node.get("fqDescription") or ""),
                     "label": label,
                     "name": name,
                     "url": f"{host}/{cat_id}" if not raw_url.startswith("http") else raw_url,
@@ -585,7 +609,15 @@ def _normalize_alvi_product(product: dict[str, Any], store: dict[str, Any], posi
 
 
 def _fetch_alvi_bff_products(store: dict[str, Any], category: dict[str, Any] | None, category_id: str, query: str, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    endpoint = str(store.get("bff_products_url") or "")
+    category_endpoint = str(store.get("bff_by_category_url") or "")
+    search_endpoint = str(store.get("bff_products_url") or "")
+    term_endpoint = str(store.get("bff_search_url") or "")
+    if query.strip() and term_endpoint:
+        endpoint = term_endpoint.format(query=urllib.parse.quote(query.strip(), safe=""))
+    elif category and category.get("fq") and category_endpoint:
+        endpoint = category_endpoint
+    else:
+        endpoint = search_endpoint
     if not endpoint:
         return [], {}
     params = {
@@ -593,10 +625,11 @@ def _fetch_alvi_bff_products(store: dict[str, Any], category: dict[str, Any] | N
         "to": str(max(0, min(limit, PAGE_SIZE) - 1)),
         "hideUnavailableItems": "1",
     }
-    if query.strip():
-        params["query"] = query.strip()
-    if category_id:
-        params["category"] = category_id.strip("/")
+    if not (query.strip() and term_endpoint):
+        if category and category.get("fq") and category_endpoint:
+            params["fq"] = str(category["fq"])
+        elif category_id:
+            params["categories"] = category_id.strip("/")
     url = f"{endpoint}?{urllib.parse.urlencode(params)}"
     data = _fetch_json(url, store["host"])
     raw = []
@@ -618,7 +651,13 @@ def _fetch_alvi_bff_products(store: dict[str, Any], category: dict[str, Any] | N
             items.append(normalized)
         if len(items) >= limit:
             break
-    return items, {"bff_url": url, "bff_products_raw": len(raw) if isinstance(raw, list) else 0}
+    return items, {
+        "bff_url": url,
+        "bff_products_raw": len(raw) if isinstance(raw, list) else 0,
+        "category_slug": category_id,
+        "category_numeric_id": str(category.get("numeric_id") or "") if category else "",
+        "category_fq": str(category.get("fq") or "") if category else "",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +736,8 @@ def collect_results(
                     "page_size": PAGE_SIZE,
                     "category_id": category_id,
                     "category": category.get("label") if category else "",
+                    "category_numeric_id": bff_meta.get("category_numeric_id", ""),
+                    "category_fq": bff_meta.get("category_fq", ""),
                     "effective_query": cleaned_query,
                     "search_url": bff_meta.get("bff_url"),
                     "query_mode": "smu_bff",

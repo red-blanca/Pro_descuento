@@ -88,7 +88,21 @@ export default function SupermercadosPanel() {
     fetch('/api/global-categories')
       .then((res) => res.json())
       .then((data) => {
-        if (!ignore) setCategoriesBySource(data.categories || data || {})
+        if (!ignore) {
+          const categories = data.categories || data || {}
+          setCategoriesBySource(categories)
+          setCategoryBySource((previous) => {
+            const next = { ...previous }
+            for (const [source, selectedCategory] of Object.entries(previous)) {
+              if (!selectedCategory) continue
+              const valid = (categories[source] || []).some(
+                (category) => (category.value || category.id) === selectedCategory,
+              )
+              if (!valid) next[source] = ''
+            }
+            return next
+          })
+        }
       })
       .catch(() => {
         if (!ignore) setCategoriesBySource({})
