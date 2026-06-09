@@ -11,7 +11,8 @@ especificos, este modulo sigue el mismo enfoque tolerante que Lider:
   - collect_results contra un endpoint JSON configurable (env TOTTUS_API_TEMPLATE)
     con parser flexible y manejo de errores que NO rompe la busqueda global.
 
-Confirmar el endpoint real en el Paso 1 del plan (o usar fallback Playwright).
+Cuando el endpoint no esta configurado, usa Playwright para leer los resultados
+SSR incluidos por Next.js en ``__NEXT_DATA__``.
 """
 
 import json
@@ -42,20 +43,21 @@ DEFAULT_HEADERS = {
 }
 
 CATEGORIES: list[dict[str, Any]] = [
-    {"id": "despensa", "name": "Despensa"},
-    {"id": "frutas-y-verduras", "name": "Frutas y Verduras"},
-    {"id": "carnes-y-pescados", "name": "Carnes y Pescados"},
-    {"id": "lacteos-y-huevos", "name": "Lacteos y Huevos"},
-    {"id": "panaderia", "name": "Panaderia"},
-    {"id": "bebidas", "name": "Bebidas"},
-    {"id": "vinos-cervezas-y-licores", "name": "Vinos, Cervezas y Licores"},
-    {"id": "snacks-y-dulces", "name": "Snacks y Dulces"},
-    {"id": "congelados", "name": "Congelados"},
-    {"id": "limpieza", "name": "Limpieza"},
-    {"id": "cuidado-personal", "name": "Cuidado Personal"},
-    {"id": "mascotas", "name": "Mascotas"},
-    {"id": "bebes", "name": "Bebes"},
-    {"id": "hogar", "name": "Hogar"},
+    {"id": "CATG27055/Despensa", "name": "Despensa"},
+    {"id": "CATG27070/Frutas-y-Verduras", "name": "Frutas y Verduras"},
+    {"id": "CATG27069/Carnes", "name": "Carnes"},
+    {"id": "CATG27127/Pescados-y-Mariscos", "name": "Pescados y Mariscos"},
+    {"id": "CATG27139/Lacteos-y-Quesos", "name": "Lacteos y Quesos"},
+    {"id": "CATG27109/Fiambres-y-Huevos", "name": "Fiambres y Huevos"},
+    {"id": "CATG27075/Panaderia-y-Pasteleria", "name": "Panaderia y Pasteleria"},
+    {"id": "CATG29182/Bebestibles", "name": "Bebestibles"},
+    {"id": "CATG27083/Cervezas", "name": "Cervezas"},
+    {"id": "CATG27084/Vinos-y-Licores", "name": "Vinos y Licores"},
+    {"id": "CATG27073/Congelados", "name": "Congelados"},
+    {"id": "CATG27074/Aseo-y-Limpieza", "name": "Aseo y Limpieza"},
+    {"id": "CATG29426/Perfumeria", "name": "Perfumeria"},
+    {"id": "CATG27078/Mascotas", "name": "Mascotas"},
+    {"id": "CATG27079/Hogar-y-Ferreteria", "name": "Hogar y Ferreteria"},
 ]
 
 _NAME_KEYS = ("displayName", "name", "title", "productName", "description")
@@ -94,6 +96,13 @@ def _money(value: Any) -> str:
     if amount <= 0:
         return ""
     return f"$ {amount:,}".replace(",", ".")
+
+
+def _parse_clp(value: Any) -> float:
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    digits = re.sub(r"[^\d]", "", str(value or ""))
+    return float(digits) if digits else 0.0
 
 
 def _fetch_json(url: str) -> Any:
@@ -214,6 +223,157 @@ def _normalize_product(product: dict[str, Any], position: int) -> dict[str, Any]
     }
 
 
+def _normalize_next_product(
+    product: dict[str, Any],
+    position: int,
+    category_name: str = "",
+) -> dict[str, Any]:
+    prices = product.get("prices") if isinstance(product.get("prices"), list) else []
+    current_prices = [
+        _parse_clp(entry.get("price"))
+        for entry in prices
+        if isinstance(entry, dict) and not entry.get("crossed")
+    ]
+    crossed_prices = [
+        _parse_clp(entry.get("price"))
+        for entry in prices
+        if isinstance(entry, dict) and entry.get("crossed")
+    ]
+    current_prices = [price for price in current_prices if price > 0]
+    crossed_prices = [price for price in crossed_prices if price > 0]
+    price = min(current_prices, default=0.0)
+    list_price = max(crossed_prices, default=price)
+
+    normalized = _normalize_product(
+        {
+            "productId": product.get("productId") or product.get("skuId"),
+            "displayName": product.get("displayName"),
+            "brand": product.get("brand"),
+            "mediaUrls": product.get("mediaUrls") or product.get("media"),
+            "url": product.get("url"),
+            "price": price,
+            "listPrice": list_price,
+        },
+        position,
+    )
+    normalized["category"] = category_name
+    normalized["available"] = bool(product.get("availability", True))
+    return normalized
+
+
+def _browser_url(query: str, category_id: str, page_number: int = 1) -> str:
+    if query:
+        url = f"{HOST}/tottus-cl/search?Ntt={urllib.parse.quote(query)}"
+    else:
+        url = f"{HOST}/tottus-cl/lista/{category_id.strip('/')}"
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}page={page_number}" if page_number > 1 else url
+
+
+def _collect_browser_results(
+    query: str,
+    category_id: str,
+    category: dict[str, Any] | None,
+    limit: int,
+    max_pages: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:  # noqa: BLE001
+        return [], {"warning": f"Tottus requiere Playwright: {exc}"}
+
+    headless = os.environ.get("TOTTUS_BROWSER_HEADLESS", "0").strip().lower() in {"1", "true", "yes"}
+    channel = os.environ.get("TOTTUS_BROWSER_CHANNEL", "chrome").strip() or None
+    # El SSR ignora ?page=2 y vuelve a entregar la primera pagina.
+    page_limit = 1
+    raw_products: list[dict[str, Any]] = []
+    search_url = _browser_url(query, category_id)
+    search_warning = ""
+
+    try:
+        with sync_playwright() as playwright:
+            launch_options: dict[str, Any] = {"headless": headless}
+            if channel:
+                launch_options["channel"] = channel
+            try:
+                browser = playwright.chromium.launch(**launch_options)
+            except Exception:
+                browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(locale="es-CL", ignore_https_errors=True)
+
+            targets: list[tuple[str, str, int]] = []
+            if category_id:
+                targets.append(("", category_id, page_limit))
+            elif query:
+                targets.append((query, "", page_limit))
+                targets.extend(("", cat["id"], 1) for cat in CATEGORIES)
+
+            for target_query, target_category, target_pages in targets:
+                for page_number in range(1, target_pages + 1):
+                    current_url = _browser_url(target_query, target_category, page_number)
+                    page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
+                    if "526" in page.title() or "invalid ssl" in page.title().lower():
+                        if target_query:
+                            search_warning = (
+                                "Tottus: /search respondio 526; se uso busqueda local "
+                                "sobre categorias."
+                            )
+                            break
+                        continue
+                    next_data = page.locator("#__NEXT_DATA__")
+                    try:
+                        next_data.wait_for(state="attached", timeout=15_000)
+                    except Exception:
+                        if target_query:
+                            search_warning = (
+                                "Tottus: /search fue bloqueado; se uso busqueda local "
+                                "sobre categorias."
+                            )
+                            break
+                        continue
+                    payload = json.loads(next_data.text_content() or "{}")
+                    page_products = payload.get("props", {}).get("pageProps", {}).get("results", [])
+                    if not isinstance(page_products, list) or not page_products:
+                        break
+                    for product in page_products:
+                        if not isinstance(product, dict):
+                            continue
+                        text = " ".join(
+                            str(product.get(key) or "")
+                            for key in ("displayName", "brand")
+                        ).lower()
+                        if query and not target_query and query.lower() not in text:
+                            continue
+                        raw_products.append(product)
+                    if len(raw_products) >= limit or len(page_products) < 48:
+                        break
+                if len(raw_products) >= limit:
+                    break
+            browser.close()
+    except Exception as exc:  # noqa: BLE001
+        return [], {
+            "search_url": search_url,
+            "warning": f"Tottus: fallo Playwright ({exc}).",
+        }
+
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    category_name = category.get("name") if category else ""
+    for product in raw_products:
+        normalized = _normalize_next_product(product, len(items) + 1, category_name)
+        if normalized["id"] in seen:
+            continue
+        seen.add(normalized["id"])
+        if normalized["title"] and normalized["price"] > 0:
+            items.append(normalized)
+        if len(items) >= limit:
+            break
+    meta = {"search_url": search_url, "fetched_raw": len(raw_products)}
+    if search_warning:
+        meta["warning"] = search_warning
+    return items, meta
+
+
 def collect_results(
     query: str = "",
     limit: int = 80,
@@ -243,17 +403,21 @@ def collect_results(
 
     template = os.environ.get(API_ENV) or API_TEMPLATE_DEFAULT
     if not template:
+        items, browser_meta = _collect_browser_results(
+            cleaned_query,
+            category_id,
+            category,
+            target,
+            max_pages,
+        )
+        base_meta.update(browser_meta)
         base_meta.update({
-            "total": 0,
-            "total_matches": 0,
-            "warning": (
-                "Tottus: endpoint de catalogo no configurado. Define la variable "
-                f"de entorno {API_ENV} con el template del endpoint JSON "
-                "(ver Paso 1 del plan) o usa el fallback Playwright."
-            ),
+            "query_mode": "playwright_next_data",
+            "total": len(items),
+            "total_matches": len(items),
             "elapsed_seconds": round(time.perf_counter() - started, 2),
         })
-        return [], base_meta
+        return items, base_meta
 
     url = template.format(
         host=HOST,
