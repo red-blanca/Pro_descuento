@@ -504,9 +504,13 @@ def _run_aliexpress(cfg: dict[str, Any]) -> dict[str, Any]:
         query=cfg["query"],
         limit=_limit_for(cfg["scan_scope"], cfg["max_items_per_source"], 40),
         scan_scope=cfg["scan_scope"],
-        max_pages=10 if cfg["scan_scope"] == "complete" else 1,
+        # Una pagina entrega ~60 productos. Multiples paginas consecutivas
+        # activan Akamai y pueden dejar la siguiente busqueda en cero.
+        max_pages=1,
         price_includes_chile_vat=cfg["aliexpress_price_includes_chile_vat"],
         category_id=cfg["aliexpress_category_id"],
+        enrich_variant_details=False,
+        page_workers=1,
     )
     items = aliexpress.apply_filters(
         items,

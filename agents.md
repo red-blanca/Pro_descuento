@@ -337,6 +337,8 @@ Los scrapers viven en carpetas independientes. Ya **no tienen backends HTTP ni f
 - Requiere `Playwright` + `playwright-stealth`; despues de instalar dependencias ejecutar `playwright install chromium`.
 - Para obtener precios y envios orientados a Chile, inyecta la cookie regional `aep_usuc_f` con valor `site=glo&c_tp=CLP&region=CL&b_locale=es_CL`.
 - Extrae datos del JSON incrustado en scripts de inicializacion como `window.runParams` o equivalentes.
+- Las busquedas usan `www.aliexpress.com` por defecto, hacen fallback headless de dominio/navegador y conservan en memoria las cookies renovadas durante navegaciones exitosas. El runner global consulta una sola pagina y no abre detalles de variantes para evitar activar Akamai despues de varias busquedas consecutivas.
+- Si AliExpress devuelve challenge, se activa un cortacircuito temporal (`ALIEXPRESS_CHALLENGE_COOLDOWN_SECONDS`, 180 segundos por defecto) para no prolongar el bloqueo. Entornos con una IP bloqueada pueden configurar `ALIEXPRESS_PROXY_SERVER` y opcionalmente `ALIEXPRESS_PROXY_USERNAME`/`ALIEXPRESS_PROXY_PASSWORD`.
 - Las categorias de AliExpress se exponen como arbol local de navegacion principal/subcategoria. Se usan como terminos guia de busqueda porque AliExpress no expone un filtro de categoria estable como pcFactory.
 - Impuestos de internacion a Chile:
   - Compras hasta US$ 500: IVA 19%; arancel aduanero 0%.

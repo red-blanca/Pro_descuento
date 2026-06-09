@@ -4,6 +4,7 @@ import json
 import os
 import random
 import re
+import threading
 import time
 import urllib.parse
 import warnings
@@ -13,7 +14,7 @@ from typing import Any
 
 SCRAPER_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRAPER_DIR)
-BASE_URL = os.getenv("ALIEXPRESS_BASE_URL", "https://es.aliexpress.com")
+BASE_URL = os.getenv("ALIEXPRESS_BASE_URL", "https://www.aliexpress.com")
 SEARCH_URL = f"{BASE_URL}/w/wholesale-{{query}}.html"
 COOKIE_VALUE = "site=glo&c_tp=CLP&region=CL&b_locale=es_CL"
 USER_AGENTS = [
@@ -25,7 +26,7 @@ USER_AGENTS = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/126.0.0.0 Safari/537.36"
+        "Chrome/136.0.0.0 Safari/537.36"
     ),
 ]
 USD_CIF_THRESHOLD = 500.0
@@ -38,6 +39,11 @@ DEFAULT_COOKIE_FILES = [
     os.path.join(SCRAPER_DIR, "aliexpress_cookies.txt"),
     os.path.join(ROOT_DIR, "aliexpress_cookies.txt"),
 ]
+CHALLENGE_COOLDOWN_SECONDS = max(30, int(os.getenv("ALIEXPRESS_CHALLENGE_COOLDOWN_SECONDS", "180")))
+_CHALLENGE_LOCK = threading.Lock()
+_CHALLENGE_UNTIL = 0.0
+_SESSION_COOKIE_LOCK = threading.Lock()
+_SESSION_COOKIES: list[dict[str, Any]] = []
 
 ALIEXPRESS_CATEGORY_TREE = [
     ("electronics", "Electronica", "electronics", [
@@ -808,6 +814,26 @@ def _load_cookies(cookie_file: str | None = None) -> list[dict[str, Any]]:
     return cookies
 
 
+def _browser_cookies(cookie_file: str | None = None) -> list[dict[str, Any]]:
+    cookies = _load_cookies(cookie_file)
+    with _SESSION_COOKIE_LOCK:
+        session_cookies = [dict(cookie) for cookie in _SESSION_COOKIES]
+    by_key = {
+        (cookie["name"], cookie.get("domain", ""), cookie.get("path", "/")): cookie
+        for cookie in cookies
+    }
+    for cookie in session_cookies:
+        key = (cookie["name"], cookie.get("domain", ""), cookie.get("path", "/"))
+        by_key[key] = cookie
+    return list(by_key.values())
+
+
+def _remember_session_cookies(cookies: list[dict[str, Any]]) -> None:
+    with _SESSION_COOKIE_LOCK:
+        _SESSION_COOKIES.clear()
+        _SESSION_COOKIES.extend(dict(cookie) for cookie in cookies)
+
+
 def _discount_from_node(node: dict[str, Any]) -> int:
     prices = node.get("prices") if isinstance(node.get("prices"), dict) else {}
     sale_price = prices.get("salePrice") if isinstance(prices.get("salePrice"), dict) else {}
@@ -934,60 +960,105 @@ def _fetch_search_html(query: str, page_num: int, cookie_file: str | None = None
             "AliExpress requiere playwright y playwright-stealth. Instala dependencias y ejecuta: playwright install chromium"
         ) from exc
 
-    encoded_query = urllib.parse.quote(re.sub(r"\s+", "-", query.strip()))
-    url = SEARCH_URL.format(query=encoded_query)
-    if page_num > 1:
-        url = f"{url}?page={page_num}"
+    global _CHALLENGE_UNTIL
+    with _CHALLENGE_LOCK:
+        challenge_remaining = _CHALLENGE_UNTIL - time.monotonic()
+    if challenge_remaining > 0:
+        raise RuntimeError(f"AliExpress en pausa anti-bloqueo ({int(challenge_remaining)}s restantes)")
 
+    encoded_query = urllib.parse.quote(re.sub(r"\s+", "-", query.strip()))
+    bases = list(dict.fromkeys([BASE_URL, "https://www.aliexpress.com", "https://es.aliexpress.com"]))
+    channels = [None, "chrome"]
+    last_html = ""
+    last_error: Exception | None = None
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-            ],
-        )
-        try:
-            context = browser.new_context(
-                locale="es-CL",
-                timezone_id="America/Santiago",
-                viewport={"width": 1366, "height": 768},
-                user_agent=random.choice(USER_AGENTS),
-                extra_http_headers={
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
-                    "Referer": BASE_URL,
-                    "Upgrade-Insecure-Requests": "1",
-                },
-            )
-            cookies = _load_cookies(cookie_file)
-            cookies.append(
-                {
-                    "name": "aep_usuc_f",
-                    "value": COOKIE_VALUE,
-                    "domain": ".aliexpress.com",
-                    "path": "/",
-                    "httpOnly": False,
-                    "secure": True,
-                    "sameSite": "Lax",
+        for base in bases:
+            url = f"{base}/w/wholesale-{encoded_query}.html"
+            if page_num > 1:
+                url = f"{url}?page={page_num}"
+            for channel in channels:
+                launch_options: dict[str, Any] = {
+                    "headless": True,
+                    "args": [
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                    ],
                 }
-            )
-            context.add_cookies(cookies)
-            page = context.new_page()
-            _stealth_page(page)
-            page.add_init_script(
-                """
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                Object.defineProperty(navigator, 'languages', { get: () => ['es-CL', 'es', 'en'] });
-                Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-                """
-            )
-            page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS)
-            page.wait_for_timeout(random.randint(1600, 2600))
-            return page.content()
-        finally:
-            browser.close()
+                if channel:
+                    launch_options["channel"] = channel
+                proxy_server = os.getenv("ALIEXPRESS_PROXY_SERVER", "").strip()
+                if proxy_server:
+                    proxy: dict[str, str] = {"server": proxy_server}
+                    proxy_username = os.getenv("ALIEXPRESS_PROXY_USERNAME", "").strip()
+                    proxy_password = os.getenv("ALIEXPRESS_PROXY_PASSWORD", "").strip()
+                    if proxy_username:
+                        proxy["username"] = proxy_username
+                    if proxy_password:
+                        proxy["password"] = proxy_password
+                    launch_options["proxy"] = proxy
+                try:
+                    browser = playwright.chromium.launch(**launch_options)
+                except Exception as exc:
+                    last_error = exc
+                    continue
+                try:
+                    context = browser.new_context(
+                        locale="es-CL",
+                        timezone_id="America/Santiago",
+                        viewport={"width": 1366, "height": 768},
+                        user_agent=random.choice(USER_AGENTS),
+                        extra_http_headers={
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                            "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+                            "Referer": base,
+                            "Upgrade-Insecure-Requests": "1",
+                        },
+                    )
+                    cookies = _browser_cookies(cookie_file)
+                    cookies.append(
+                        {
+                            "name": "aep_usuc_f",
+                            "value": COOKIE_VALUE,
+                            "domain": ".aliexpress.com",
+                            "path": "/",
+                            "httpOnly": False,
+                            "secure": True,
+                            "sameSite": "Lax",
+                        }
+                    )
+                    context.add_cookies(cookies)
+                    page = context.new_page()
+                    _stealth_page(page)
+                    page.add_init_script(
+                        """
+                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                        Object.defineProperty(navigator, 'languages', { get: () => ['es-CL', 'es', 'en'] });
+                        Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+                        """
+                    )
+                    page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS)
+                    page.wait_for_timeout(random.randint(1600, 2600))
+                    last_html = page.content()
+                    if not _is_challenge_page(last_html):
+                        _remember_session_cookies(context.cookies())
+                        with _CHALLENGE_LOCK:
+                            _CHALLENGE_UNTIL = 0.0
+                        return last_html
+                    if base == "https://www.aliexpress.com" and channel == "chrome":
+                        with _CHALLENGE_LOCK:
+                            _CHALLENGE_UNTIL = time.monotonic() + CHALLENGE_COOLDOWN_SECONDS
+                        return last_html
+                except Exception as exc:
+                    last_error = exc
+                finally:
+                    browser.close()
+
+    if last_html:
+        return last_html
+    if last_error:
+        raise last_error
+    raise RuntimeError("AliExpress no entrego una respuesta util.")
 
 
 def _fetch_detail_html(url: str, cookie_file: str | None = None) -> str:
@@ -1202,7 +1273,7 @@ def collect_results(
     usd_clp_rate = float(kwargs.get("usd_clp_rate") or DEFAULT_USD_CLP_RATE)
     price_includes_chile_vat = bool(kwargs.get("price_includes_chile_vat", True))
     cookie_file = kwargs.get("cookie_file") or os.getenv("ALIEXPRESS_COOKIE_FILE")
-    enrich_variant_details = bool(kwargs.get("enrich_variant_details", True))
+    enrich_variant_details = bool(kwargs.get("enrich_variant_details", False))
     variant_detail_limit = max(0, int(kwargs.get("variant_detail_limit") or 6))
     variant_detail_workers = max(1, min(int(kwargs.get("variant_detail_workers") or 1), 2))
     raw_products: list[dict[str, Any]] = []
@@ -1211,14 +1282,19 @@ def collect_results(
     pages_fetched = 0
 
     def fetch_page_products(page_num: int) -> tuple[int, list[dict[str, Any]], str | None]:
-        try:
-            html = _fetch_search_html(effective_query, page_num, cookie_file=cookie_file)
-            if _is_challenge_page(html):
-                return page_num, [], "AliExpress challenge/captcha"
-            payloads = _extract_json_objects(html)
-            return page_num, _product_nodes(payloads), None
-        except Exception as exc:
-            return page_num, [], str(exc)
+        retries = max(0, min(int(kwargs.get("challenge_retries") or 0), 2))
+        for attempt in range(retries + 1):
+            try:
+                html = _fetch_search_html(effective_query, page_num, cookie_file=cookie_file)
+                if not _is_challenge_page(html):
+                    payloads = _extract_json_objects(html)
+                    return page_num, _product_nodes(payloads), None
+            except Exception as exc:
+                if attempt >= retries:
+                    return page_num, [], str(exc)
+            if attempt < retries:
+                time.sleep(float(kwargs.get("challenge_retry_seconds") or 12))
+        return page_num, [], "AliExpress challenge/captcha"
 
     page_num, page_products, error = fetch_page_products(1)
     if error:
@@ -1229,7 +1305,7 @@ def collect_results(
 
     remaining_pages = list(range(2, pages + 1)) if not error and len(raw_products) < target else []
     if remaining_pages:
-        workers = max(1, min(int(kwargs.get("page_workers") or 2), len(remaining_pages), 3))
+        workers = max(1, min(int(kwargs.get("page_workers") or 1), len(remaining_pages), 3))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(fetch_page_products, page_num) for page_num in remaining_pages]
             for future in as_completed(futures):
@@ -1305,7 +1381,14 @@ def collect_results(
         meta["variant_warnings"] = warnings_list[:20]
     if errors:
         meta["errors"] = errors
-        meta["warning"] = "AliExpress no entrego todos los datos solicitados."
+        error_text = " ".join(errors).lower()
+        if not items and ("challenge" in error_text or "anti-bloqueo" in error_text or "captcha" in error_text):
+            meta["warning"] = (
+                "AliExpress activo una pausa anti-bloqueo temporal. "
+                "Espera antes de volver a buscar o configura ALIEXPRESS_PROXY_SERVER."
+            )
+        else:
+            meta["warning"] = "AliExpress no entrego todos los datos solicitados."
     return items, meta
 
 

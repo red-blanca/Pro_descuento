@@ -1,11 +1,11 @@
 # Graph Report - Pro_descuento__v2  (2026-06-09)
 
 ## Corpus Check
-- 274 files · ~222,009 words
+- 274 files · ~222,403 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2144 nodes · 3567 edges · 188 communities (147 shown, 41 thin omitted)
+- 2146 nodes · 3575 edges · 187 communities (146 shown, 41 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 7 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -157,14 +157,13 @@
 - [[_COMMUNITY_Community 153|Community 153]]
 - [[_COMMUNITY_Community 182|Community 182]]
 - [[_COMMUNITY_Community 183|Community 183]]
-- [[_COMMUNITY_Community 184|Community 184]]
 - [[_COMMUNITY_Community 185|Community 185]]
 - [[_COMMUNITY_Community 186|Community 186]]
 - [[_COMMUNITY_Community 187|Community 187]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `cn()` - 271 edges
-2. `Any` - 34 edges
+2. `Any` - 36 edges
 3. `Any` - 27 edges
 4. `SoundService` - 26 edges
 5. `Any` - 24 edges
@@ -189,7 +188,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (188 total, 41 thin omitted)
+## Communities (187 total, 41 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.08
@@ -217,7 +216,7 @@ Nodes (50): dependencies, autoprefixer, class-variance-authority, clsx, cmdk, da
 
 ### Community 6 - "Community 6"
 Cohesion: 0.13
-Nodes (46): _absolute_url(), apply_filters(), _as_list(), _calculate_chile_cost(), _category_by_id(), _category_seed(), _clean_number(), collect_results() (+38 more)
+Nodes (49): _absolute_url(), apply_filters(), _as_list(), _browser_cookies(), _calculate_chile_cost(), _category_by_id(), _category_seed(), _clean_number() (+41 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.08
@@ -240,8 +239,8 @@ Cohesion: 0.07
 Nodes (36): Action, ActionType, actionTypes, addToRemoveQueue(), dispatch(), genId(), listeners, memoryState (+28 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.13
-Nodes (17): BaseModel, aliexpress_cookies_status(), CookiePayload, facebook_cookies_status(), _facebook_profile_status(), FacebookCookiePayload, _file_age_status(), global_categories() (+9 more)
+Cohesion: 0.10
+Nodes (24): BaseModel, aliexpress_cookies_status(), CookiePayload, facebook_cookies_status(), _facebook_profile_status(), FacebookCookiePayload, _file_age_status(), global_categories() (+16 more)
 
 ### Community 13 - "Community 13"
 Cohesion: 0.09
@@ -603,10 +602,6 @@ Nodes (9): _cache_get(), _cache_key(), _cache_set(), _collect(), count(), export
 Cohesion: 0.41
 Nodes (11): build_suggestions(), _label_for_value(), _normalize(), Any, Sugerencia conservadora de categorías para búsqueda global (términos generales)., Elige categoría dominante por volumen; si hay empate, devuelve Todas ('')., _score_label(), suggest_by_label() (+3 more)
 
-### Community 184 - "Community 184"
-Cohesion: 0.29
-Nodes (7): global_search_poll(), _job_result_for_storage(), _prune_jobs_locked(), Run global search in background thread and store result in _JOBS., Drop old finished jobs so large result sets do not live forever in RAM., Keep only the fields needed by the API response; by_source duplicates items., _run_global_job()
-
 ### Community 185 - "Community 185"
 Cohesion: 0.47
 Nodes (3): export_results(), preview_results(), SearchPayload
@@ -622,7 +617,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Why does `cn()` connect `Community 1` to `Community 64`, `Community 36`, `Community 40`, `Community 8`, `Community 11`, `Community 46`, `Community 15`, `Community 49`, `Community 50`, `Community 84`, `Community 55`, `Community 22`, `Community 54`, `Community 25`, `Community 59`, `Community 62`, `Community 63`?**
   _High betweenness centrality (0.036) - this node is a cross-community bridge._
 - **Why does `SearchPayload` connect `Community 35` to `Community 12`?**
-  _High betweenness centrality (0.003) - this node is a cross-community bridge._
+  _High betweenness centrality (0.004) - this node is a cross-community bridge._
 - **Why does `SearchPayload` connect `Community 182` to `Community 12`?**
   _High betweenness centrality (0.002) - this node is a cross-community bridge._
 - **What connects `PreToolUse`, `_inter`, `_jetbrainsMono` to the rest of the system?**
