@@ -1,16 +1,16 @@
 # Graph Report - Pro_descuento__v2  (2026-06-09)
 
 ## Corpus Check
-- 274 files · ~221,473 words
+- 274 files · ~221,739 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2140 nodes · 3552 edges · 182 communities (143 shown, 39 thin omitted)
+- 2143 nodes · 3563 edges · 182 communities (143 shown, 39 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 7 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ecc9f3ed`
+- Built from commit: `b595ea1a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -166,7 +166,7 @@
 7. `Guia de Contexto para Agentes de IA - Proyecto Pro Descuento` - 22 edges
 8. `Any` - 21 edges
 9. `Any` - 21 edges
-10. `execute_search()` - 17 edges
+10. `Any` - 19 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `_filter_words()` --calls--> `normalize()`  [INFERRED]
@@ -342,8 +342,8 @@ Cohesion: 0.29
 Nodes (18): apply_filters(), _as_float(), _as_int(), _category_by_id(), _collect_acuenta_browser(), collect_results(), _configured_category_by_id(), _extract_price() (+10 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.30
-Nodes (18): apply_filters(), _as_float(), _as_int(), _browser_url(), _category_by_id(), _collect_browser_results(), collect_results(), _extract_price() (+10 more)
+Cohesion: 0.27
+Nodes (21): apply_filters(), _as_float(), _as_int(), _browser_url(), _categories_for_query(), _category_by_id(), _collect_browser_results(), collect_results() (+13 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.13

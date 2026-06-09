@@ -19,6 +19,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -36,7 +37,7 @@ DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
+        "Chrome/136.0.0.0 Safari/537.36"
     ),
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
@@ -51,6 +52,8 @@ CATEGORIES: list[dict[str, Any]] = [
     {"id": "CATG27109/Fiambres-y-Huevos", "name": "Fiambres y Huevos"},
     {"id": "CATG27075/Panaderia-y-Pasteleria", "name": "Panaderia y Pasteleria"},
     {"id": "CATG29182/Bebestibles", "name": "Bebestibles"},
+    {"id": "CATG27609/Energeticas", "name": "Bebidas Energeticas"},
+    {"id": "CATG27218/Isotonicas-y-Energeticas", "name": "Isotonicas y Energeticas"},
     {"id": "CATG27083/Cervezas", "name": "Cervezas"},
     {"id": "CATG27084/Vinos-y-Licores", "name": "Vinos y Licores"},
     {"id": "CATG27073/Congelados", "name": "Congelados"},
@@ -263,11 +266,67 @@ def _normalize_next_product(
 
 def _browser_url(query: str, category_id: str, page_number: int = 1) -> str:
     if query:
-        url = f"{HOST}/tottus-cl/search?Ntt={urllib.parse.quote(query)}"
+        url = f"{HOST}/tottus-cl/buscar?Ntt={urllib.parse.quote(query)}"
     else:
         url = f"{HOST}/tottus-cl/lista/{category_id.strip('/')}"
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}page={page_number}" if page_number > 1 else url
+
+
+def _normalized_text(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+
+def _categories_for_query(query: str) -> list[dict[str, Any]]:
+    text = _normalized_text(query)
+    keyword_categories = {
+        "aceite": "CATG27055/Despensa",
+        "arroz": "CATG27055/Despensa",
+        "fideo": "CATG27055/Despensa",
+        "galleta": "CATG27055/Despensa",
+        "leche": "CATG27139/Lacteos-y-Quesos",
+        "queso": "CATG27139/Lacteos-y-Quesos",
+        "yog": "CATG27139/Lacteos-y-Quesos",
+        "carne": "CATG27069/Carnes",
+        "pollo": "CATG27069/Carnes",
+        "pescado": "CATG27127/Pescados-y-Mariscos",
+        "cerveza": "CATG27083/Cervezas",
+        "vino": "CATG27084/Vinos-y-Licores",
+        "bebida": "CATG29182/Bebestibles",
+        "jugo": "CATG29182/Bebestibles",
+        "energet": "CATG27609/Energeticas",
+        "isotonic": "CATG27218/Isotonicas-y-Energeticas",
+        "pan": "CATG27075/Panaderia-y-Pasteleria",
+        "shampoo": "CATG29426/Perfumeria",
+        "jabon": "CATG29426/Perfumeria",
+        "detergente": "CATG27074/Aseo-y-Limpieza",
+        "limpieza": "CATG27074/Aseo-y-Limpieza",
+        "perro": "CATG27078/Mascotas",
+        "gato": "CATG27078/Mascotas",
+    }
+    preferred_ids = [
+        category_id
+        for keyword, category_id in keyword_categories.items()
+        if keyword in text
+    ]
+    matched = [
+        cat for cat in CATEGORIES
+        if cat["id"] in preferred_ids or any(word in _normalized_text(cat["name"]) for word in text.split())
+    ]
+    if matched:
+        return matched[:3]
+    # Para terminos desconocidos hace un sondeo acotado, no recorre todo el sitio.
+    return CATEGORIES[:3]
+
+
+def _matches_query(product: dict[str, Any], query: str) -> bool:
+    text = _normalized_text(" ".join(
+        str(product.get(key) or "")
+        for key in ("displayName", "brand")
+    ))
+    words = [word for word in _normalized_text(query).split() if word]
+    return bool(words) and all(word in text for word in words)
 
 
 def _collect_browser_results(
@@ -282,72 +341,89 @@ def _collect_browser_results(
     except Exception as exc:  # noqa: BLE001
         return [], {"warning": f"Tottus requiere Playwright: {exc}"}
 
-    headless = os.environ.get("TOTTUS_BROWSER_HEADLESS", "0").strip().lower() in {"1", "true", "yes"}
-    channel = os.environ.get("TOTTUS_BROWSER_CHANNEL", "chrome").strip() or None
+    channel = os.environ.get("TOTTUS_BROWSER_CHANNEL", "").strip() or None
     # El SSR ignora ?page=2 y vuelve a entregar la primera pagina.
     page_limit = 1
     raw_products: list[dict[str, Any]] = []
     search_url = _browser_url(query, category_id)
     search_warning = ""
+    deadline = time.perf_counter() + 25
+    direct_search_succeeded = False
 
     try:
         with sync_playwright() as playwright:
-            launch_options: dict[str, Any] = {"headless": headless}
+            launch_options: dict[str, Any] = {"headless": True}
             if channel:
                 launch_options["channel"] = channel
             try:
                 browser = playwright.chromium.launch(**launch_options)
             except Exception:
                 browser = playwright.chromium.launch(headless=True)
-            page = browser.new_page(locale="es-CL", ignore_https_errors=True)
+            page = browser.new_page(
+                locale="es-CL",
+                ignore_https_errors=True,
+                user_agent=DEFAULT_HEADERS["User-Agent"],
+                extra_http_headers={"Accept-Language": DEFAULT_HEADERS["Accept-Language"]},
+            )
+            page.set_default_timeout(5_000)
 
             targets: list[tuple[str, str, int]] = []
             if category_id:
                 targets.append(("", category_id, page_limit))
             elif query:
                 targets.append((query, "", page_limit))
-                targets.extend(("", cat["id"], 1) for cat in CATEGORIES)
+                targets.extend(("", cat["id"], 1) for cat in _categories_for_query(query))
 
             for target_query, target_category, target_pages in targets:
+                if time.perf_counter() >= deadline:
+                    search_warning = "Tottus: busqueda parcial por limite de tiempo."
+                    break
                 for page_number in range(1, target_pages + 1):
                     current_url = _browser_url(target_query, target_category, page_number)
-                    page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
+                    try:
+                        page.goto(current_url, wait_until="domcontentloaded", timeout=10_000)
+                    except Exception:
+                        search_warning = "Tottus: una pagina no respondio dentro del limite de tiempo."
+                        break
                     if "526" in page.title() or "invalid ssl" in page.title().lower():
                         if target_query:
                             search_warning = (
-                                "Tottus: /search respondio 526; se uso busqueda local "
+                                "Tottus: /buscar respondio 526; se uso busqueda local "
                                 "sobre categorias."
                             )
                             break
                         continue
                     next_data = page.locator("#__NEXT_DATA__")
                     try:
-                        next_data.wait_for(state="attached", timeout=15_000)
+                        next_data.wait_for(state="attached", timeout=5_000)
                     except Exception:
                         if target_query:
                             search_warning = (
-                                "Tottus: /search fue bloqueado; se uso busqueda local "
+                                "Tottus: /buscar fue bloqueado; se uso busqueda local "
                                 "sobre categorias."
                             )
                             break
+                        search_warning = "Tottus: la categoria fue bloqueada por Cloudflare."
                         continue
                     payload = json.loads(next_data.text_content() or "{}")
                     page_products = payload.get("props", {}).get("pageProps", {}).get("results", [])
                     if not isinstance(page_products, list) or not page_products:
+                        if target_query:
+                            direct_search_succeeded = True
                         break
+                    if target_query:
+                        direct_search_succeeded = True
                     for product in page_products:
                         if not isinstance(product, dict):
                             continue
-                        text = " ".join(
-                            str(product.get(key) or "")
-                            for key in ("displayName", "brand")
-                        ).lower()
-                        if query and not target_query and query.lower() not in text:
+                        if query and not _matches_query(product, query):
                             continue
                         raw_products.append(product)
                     if len(raw_products) >= limit or len(page_products) < 48:
                         break
                 if len(raw_products) >= limit:
+                    break
+                if target_query and direct_search_succeeded:
                     break
             browser.close()
     except Exception as exc:  # noqa: BLE001
@@ -369,6 +445,8 @@ def _collect_browser_results(
         if len(items) >= limit:
             break
     meta = {"search_url": search_url, "fetched_raw": len(raw_products)}
+    if not raw_products and not search_warning:
+        search_warning = "Tottus: la pagina no contenia productos reconocibles."
     if search_warning:
         meta["warning"] = search_warning
     return items, meta
