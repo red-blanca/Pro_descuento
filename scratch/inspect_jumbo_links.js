@@ -3,7 +3,7 @@ const { chromium } = require('playwright')
 async function main() {
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ locale: 'es-CL' })
-  await page.goto('https://www.jumbo.cl', { waitUntil: 'domcontentloaded', timeout: 45000 })
+  await page.goto(process.env.INSPECT_URL || 'https://www.jumbo.cl', { waitUntil: 'domcontentloaded', timeout: 45000 })
   await page.waitForTimeout(5000)
   const links = await page.locator('a[href]').evaluateAll((nodes) =>
     nodes.map((node) => ({

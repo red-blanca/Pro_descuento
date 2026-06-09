@@ -21,6 +21,7 @@ pcfactory.py. Recorre por categoria usando la API publica de catalogo VTEX:
 import gzip
 import html
 import json
+import os
 import re
 import time
 import urllib.parse
@@ -63,11 +64,12 @@ def _fetch_json(url: str, host: str) -> Any:
     return json.loads(text)
 
 
-def _post_json(url: str, host: str, payload: dict[str, Any]) -> Any:
+def _post_json(url: str, host: str, payload: dict[str, Any], extra_headers: dict[str, str] | None = None) -> Any:
     headers = dict(DEFAULT_HEADERS)
     headers["Origin"] = host
     headers["Referer"] = f"{host}/"
     headers["Content-Type"] = "application/json"
+    headers.update(extra_headers or {})
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
@@ -522,7 +524,7 @@ def _facet_path(store: dict[str, Any], category: dict[str, Any] | None, category
 
 def _fetch_cencosud_bff_products(store: dict[str, Any], category: dict[str, Any] | None, category_id: str, query: str, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     endpoint = str(store.get("bff_plp_url") or "")
-    store_code = str(store.get("bff_store") or "")
+    store_code = str(os.getenv(str(store.get("bff_store_env") or "")) or store.get("bff_store") or "")
     if not endpoint or not store_code:
         return [], {}
     facet_path = _facet_path(store, category, category_id) if category_id else ""
@@ -542,7 +544,15 @@ def _fetch_cencosud_bff_products(store: dict[str, Any], category: dict[str, Any]
     }
     if facet_path:
         payload["selectedFacets"] = [{"key": f"category{depth}", "value": facet_path}]
-    data = _post_json(endpoint, store["host"], payload)
+    extra_headers: dict[str, str] = {}
+    auth_env = str(store.get("bff_auth_env") or "")
+    auth_header = str(store.get("bff_auth_header") or "")
+    auth_value = os.getenv(auth_env, "").strip() if auth_env else ""
+    if auth_env and not auth_value:
+        raise RuntimeError(f"Falta configurar {auth_env} para autenticar {endpoint}")
+    if auth_header and auth_value:
+        extra_headers[auth_header] = auth_value
+    data = _post_json(endpoint, store["host"], payload, extra_headers)
     raw = data.get("products") if isinstance(data, dict) else []
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -702,6 +712,7 @@ def collect_results(
     pages_needed = max(1, pages_needed)
 
     bff_meta: dict[str, Any] = {}
+    bff_error = ""
     try:
         if store.get("bff_plp_url"):
             items, bff_meta = _fetch_cencosud_bff_products(store, category, category_id, cleaned_query, target)
@@ -743,8 +754,26 @@ def collect_results(
                     "query_mode": "smu_bff",
                     "elapsed_seconds": round(time.perf_counter() - started, 2),
                 }
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         bff_meta = {}
+        bff_error = str(exc)
+        if store.get("bff_auth_env") and not os.getenv(str(store["bff_auth_env"]), "").strip():
+            return [], {
+                "source": source,
+                "store": store.get("store_label") or source,
+                "total": 0,
+                "total_matches": 0,
+                "fetched_raw": 0,
+                "pages_fetched": 0,
+                "pages_requested": pages_needed,
+                "page_size": PAGE_SIZE,
+                "category_id": category_id,
+                "category": category.get("label") if category else "",
+                "effective_query": cleaned_query,
+                "query_mode": "cencosud_bff",
+                "warning": bff_error,
+                "elapsed_seconds": round(time.perf_counter() - started, 2),
+            }
 
     base = f"{host}/api/catalog_system/pub/products/search"
 
@@ -763,7 +792,7 @@ def collect_results(
         return f"{base}?{urllib.parse.urlencode(params)}"
 
     raw_products: list[dict[str, Any]] = []
-    errors: list[str] = []
+    errors: list[str] = [f"bff: {bff_error}"] if bff_error else []
     pages_fetched = 0
 
     def fetch_page(page_index: int) -> tuple[int, list[dict[str, Any]], str | None]:
