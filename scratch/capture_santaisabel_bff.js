@@ -1,9 +1,10 @@
 const { chromium } = require('playwright')
 
-const urls = [
+const defaultUrls = [
   'https://www.santaisabel.cl/lacteos-y-quesos/leches/leche-liquida',
   'https://www.santaisabel.cl/bebidas-aguas-y-jugos/bebidas-gaseosas',
 ]
+const urls = process.argv.length > 2 ? process.argv.slice(2) : defaultUrls
 
 async function capture(browser, url) {
   const context = await browser.newContext({ locale: 'es-CL', timezoneId: 'America/Santiago' })

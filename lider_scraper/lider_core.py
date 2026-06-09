@@ -96,6 +96,11 @@ def _money(value: Any) -> str:
     return f"$ {amount:,}".replace(",", ".")
 
 
+def _parse_clp_text(value: Any) -> int:
+    digits = re.sub(r"[^\d]", "", str(value or ""))
+    return int(digits) if digits else 0
+
+
 def _fetch_json(url: str, host: str) -> Any:
     headers = dict(DEFAULT_HEADERS)
     headers["Referer"] = f"{host}/"
@@ -106,6 +111,20 @@ def _fetch_json(url: str, host: str) -> Any:
 
 
 def fetch_categories(store: dict[str, Any]) -> list[dict[str, Any]]:
+    configured = store.get("categories")
+    if isinstance(configured, list) and configured:
+        return [
+            {
+                "id": category_id,
+                "value": category_id,
+                "label": name,
+                "name": name,
+                "depth": 0,
+                "parent_id": "",
+                "has_children": False,
+            }
+            for category_id, name in configured
+        ]
     return [
         {
             "id": cat["id"],
@@ -125,6 +144,14 @@ def _category_by_id(category_id: str | None) -> dict[str, Any] | None:
     if not wanted:
         return None
     return next((c for c in SUPERMARKET_CATEGORIES if c["id"] == wanted), None)
+
+
+def _configured_category_by_id(store: dict[str, Any], category_id: str | None) -> dict[str, Any] | None:
+    wanted = str(category_id or "").strip()
+    for category in store.get("categories") or []:
+        if isinstance(category, (list, tuple)) and len(category) >= 2 and str(category[0]) == wanted:
+            return {"id": str(category[0]), "name": str(category[1])}
+    return _category_by_id(wanted)
 
 
 # Campos candidatos para el parser flexible.
@@ -224,6 +251,85 @@ def _normalize_product(product: dict[str, Any], store: dict[str, Any], position:
     }
 
 
+def _collect_acuenta_browser(
+    store: dict[str, Any],
+    query: str,
+    category_id: str,
+    category: dict[str, Any] | None,
+    limit: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:  # noqa: BLE001
+        return [], {"warning": f"acuenta requiere Playwright: {exc}"}
+
+    host = store["host"]
+    if query:
+        url = f"{host}/search?name={urllib.parse.quote(query)}"
+    else:
+        url = f"{host}/ca/{category_id.strip('/')}"
+
+    raw_products: list[dict[str, Any]] = []
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(locale="es-CL")
+            page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+            page.locator('[data-consumer="productCard"][data-product-sku]').first.wait_for(timeout=30_000)
+            for _ in range(4):
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(500)
+            raw_products = page.locator('[data-consumer="productCard"][data-product-sku]').evaluate_all(
+                """cards => cards.map(card => {
+                    const link = card.querySelector('a.containerCard');
+                    const image = card.querySelector('[data-testid="product-image-main"] img');
+                    const price = card.querySelector('[data-testid="card-base-price"]');
+                    const text = (card.textContent || '').replace(/\\s+/g, ' ').trim();
+                    const original = text.match(/\\(\\s*(\\$\\s*[\\d.]+)\\s*\\)/);
+                    return {
+                      id: card.getAttribute('data-product-sku') || '',
+                      title: image?.getAttribute('alt') || card.querySelector('[data-testid="card-name"]')?.textContent || '',
+                      priceText: price?.textContent || '',
+                      originalPriceText: original?.[1] || '',
+                      text,
+                      image: image?.getAttribute('src') || '',
+                      url: link?.href || ''
+                    };
+                })"""
+            )
+            browser.close()
+    except Exception as exc:  # noqa: BLE001
+        return [], {"search_url": url, "warning": f"acuenta: fallo Playwright ({exc})."}
+
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for product in raw_products:
+        sku = str(product.get("id") or "")
+        if not sku or sku in seen:
+            continue
+        seen.add(sku)
+        price = _parse_clp_text(product.get("priceText"))
+        list_price = _parse_clp_text(product.get("originalPriceText")) or price
+        normalized = _normalize_product(
+            {
+                "id": sku,
+                "title": product.get("title"),
+                "price": price,
+                "listPrice": list_price,
+                "image": product.get("image"),
+                "url": product.get("url"),
+            },
+            store,
+            len(items) + 1,
+        )
+        normalized["category"] = category.get("name") if category else ""
+        if normalized["title"] and normalized["price"] > 0:
+            items.append(normalized)
+        if len(items) >= limit:
+            break
+    return items, {"search_url": url, "fetched_raw": len(raw_products)}
+
+
 def collect_results(
     store: dict[str, Any],
     query: str = "",
@@ -237,7 +343,7 @@ def collect_results(
     host = store["host"]
     category_id = str(kwargs.get("category_id") or "").strip()
     cleaned_query = (query or "").strip()
-    category = _category_by_id(category_id)
+    category = _configured_category_by_id(store, category_id)
 
     target = max(1, min(int(limit or 80), 5000))
 
@@ -254,6 +360,17 @@ def collect_results(
         base_meta.update({"total": 0, "total_matches": 0, "error": "empty_query",
                           "elapsed_seconds": round(time.perf_counter() - started, 2)})
         return [], base_meta
+
+    if store.get("browser_fetch"):
+        items, browser_meta = _collect_acuenta_browser(store, cleaned_query, category_id, category, target)
+        base_meta.update(browser_meta)
+        base_meta.update({
+            "query_mode": "playwright",
+            "total": len(items),
+            "total_matches": len(items),
+            "elapsed_seconds": round(time.perf_counter() - started, 2),
+        })
+        return items, base_meta
 
     template = (
         os.environ.get(store.get("api_env", ""))
