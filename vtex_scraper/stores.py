@@ -69,6 +69,8 @@ VTEX_STORES: dict[str, dict] = {
         "source": "unimarc",
         "store_label": "Unimarc",
         "host": "https://www.unimarc.cl",
+        "bff_categories_url": "https://bff-unimarc-web.unimarc.cl/bff-api/categories/2",
+        "bff_search_url": "https://bff-unimarc-ecommerce.unimarc.cl/catalog/product/search",
         "sales_channel": "",
         "tree_depth": 4,
         "group": "SMU",

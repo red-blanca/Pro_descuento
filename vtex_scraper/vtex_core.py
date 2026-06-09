@@ -116,6 +116,11 @@ def _as_int(value: Any, default: int = 0) -> int:
     return int(round(_as_float(value, default)))
 
 
+def _as_clp_int(value: Any, default: int = 0) -> int:
+    digits = re.sub(r"[^\d]", "", str(value or ""))
+    return int(digits) if digits else default
+
+
 def _money(value: Any) -> str:
     amount = max(0, int(round(_as_float(value))))
     if amount <= 0:
@@ -205,6 +210,8 @@ def _fetch_categories_from_html(store: dict[str, Any]) -> list[dict[str, Any]]:
     if store.get("bff_categories_url"):
         try:
             data = _fetch_json(str(store["bff_categories_url"]), host)
+            if isinstance(data, dict) and isinstance(data.get("data"), list):
+                data = data["data"]
             categories = _flatten_category_tree(data, host)
             if categories:
                 return categories
@@ -271,7 +278,9 @@ def _flatten_category_tree(data: Any, host: str) -> list[dict[str, Any]]:
             if not isinstance(node, dict):
                 continue
             raw_url = str(node.get("url") or "")
-            path = urllib.parse.urlparse(raw_url).path.strip("/") if raw_url else ""
+            path = str(node.get("fqDescriptionSlug") or "").strip("/")
+            if not path:
+                path = urllib.parse.urlparse(raw_url).path.strip("/") if raw_url else ""
             cat_id = path or str(node.get("id") or node.get("slug") or node.get("reference") or "").strip()
             name = str(node.get("name") or node.get("label") or _label_from_slug(cat_id)).strip()
             children = node.get("children") or node.get("subCategories") or []
@@ -618,6 +627,81 @@ def _normalize_alvi_product(product: dict[str, Any], store: dict[str, Any], posi
     }
 
 
+def _normalize_unimarc_product(product: dict[str, Any], store: dict[str, Any], position: int) -> dict[str, Any]:
+    item = product.get("item") if isinstance(product.get("item"), dict) else {}
+    price_data = product.get("price") if isinstance(product.get("price"), dict) else {}
+    promotion = product.get("promotion") if isinstance(product.get("promotion"), dict) else {}
+    price = _as_clp_int(price_data.get("price"))
+    list_price = _as_clp_int(price_data.get("listPrice")) or price
+    promotion_price = _as_int(promotion.get("price"))
+    if promotion_price > 0 and bool(promotion.get("offerMessage")):
+        price = min(price or promotion_price, promotion_price)
+    discount = round((list_price - price) * 100 / list_price, 1) if list_price > price > 0 else 0
+    slug = str(item.get("slug") or "").strip()
+    link = f"{store['host']}/{slug.lstrip('/')}" if slug else store["host"]
+    images = item.get("images") if isinstance(item.get("images"), list) else []
+    categories = item.get("categories") if isinstance(item.get("categories"), list) else []
+    title = str(item.get("nameComplete") or item.get("name") or "").strip()
+    return {
+        "id": str(item.get("productId") or item.get("itemId") or position),
+        "sku": str(item.get("sku") or item.get("itemId") or ""),
+        "title": title,
+        "name": title,
+        "brand": str(item.get("brand") or ""),
+        "store": store.get("store_label") or store["source"],
+        "group": store.get("group") or "SMU",
+        "price": price,
+        "formatted_price": _money(price),
+        "price_original": list_price,
+        "formatted_original_price": _money(list_price),
+        "link": link,
+        "url": link,
+        "image": str(images[0] if images else ""),
+        "category": str(categories[0] if categories else "").strip("/").replace("/", " / "),
+        "discount_percent": discount,
+        "available": _as_int(price_data.get("availableQuantity")) > 0,
+        "position": position,
+        "source": store["source"],
+    }
+
+
+def _fetch_unimarc_bff_products(store: dict[str, Any], category_id: str, query: str, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    endpoint = str(store.get("bff_search_url") or "")
+    payload = {
+        "brands": [],
+        "categories": category_id,
+        "clusterId": "",
+        "clusterNames": "",
+        "container": [],
+        "foodWorld": [],
+        "format": [],
+        "from": "0",
+        "orderBy": "",
+        "searching": query,
+        "priceRangeFrom": "",
+        "priceRangeTo": "",
+        "promotionsOnly": False,
+        "to": str(max(0, min(limit, PAGE_SIZE) - 1)),
+        "volume": [],
+        "userTriggered": False,
+        "warningStamps": [],
+    }
+    data = _post_json(endpoint, store["host"], payload, {"source": "web", "channel": "UNIMARC", "version": "1.0.0"})
+    raw = data.get("availableProducts") if isinstance(data, dict) else []
+    items = [
+        _normalize_unimarc_product(product, store, position)
+        for position, product in enumerate(raw if isinstance(raw, list) else [], start=1)
+        if isinstance(product, dict)
+    ]
+    items = [item for item in items if item["title"] and item["price"] > 0][:limit]
+    return items, {
+        "bff_url": endpoint,
+        "bff_payload": payload,
+        "bff_products_raw": len(raw) if isinstance(raw, list) else 0,
+        "total_matches": _as_int(data.get("resource")) if isinstance(data, dict) else len(items),
+    }
+
+
 def _fetch_alvi_bff_products(store: dict[str, Any], category: dict[str, Any] | None, category_id: str, query: str, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     category_endpoint = str(store.get("bff_by_category_url") or "")
     search_endpoint = str(store.get("bff_products_url") or "")
@@ -714,6 +798,25 @@ def collect_results(
     bff_meta: dict[str, Any] = {}
     bff_error = ""
     try:
+        if source == "unimarc" and store.get("bff_search_url"):
+            items, bff_meta = _fetch_unimarc_bff_products(store, category_id, cleaned_query, target)
+            if items:
+                return items, {
+                    "source": source,
+                    "store": store.get("store_label") or source,
+                    "total": len(items),
+                    "total_matches": bff_meta.get("total_matches", len(items)),
+                    "fetched_raw": bff_meta.get("bff_products_raw", len(items)),
+                    "pages_fetched": 1,
+                    "pages_requested": pages_needed,
+                    "page_size": PAGE_SIZE,
+                    "category_id": category_id,
+                    "category": category.get("label") if category else "",
+                    "effective_query": cleaned_query,
+                    "search_url": bff_meta.get("bff_url"),
+                    "query_mode": "unimarc_bff",
+                    "elapsed_seconds": round(time.perf_counter() - started, 2),
+                }
         if store.get("bff_plp_url"):
             items, bff_meta = _fetch_cencosud_bff_products(store, category, category_id, cleaned_query, target)
             if items:
