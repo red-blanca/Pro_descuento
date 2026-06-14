@@ -6,6 +6,7 @@ import ssl
 import time
 import urllib.parse
 import urllib.request
+from urllib.error import HTTPError
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ OFFERS_URL = f"{BASE_URL}/oferta"
 API_OFFERS_URL = "https://cerebro.descuentosrata.com/api/v1/ofertas/"
 API_PAGE_SIZE = 500
 MAX_API_RESULTS = 10000
+REQUEST_RETRIES = 3
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -125,22 +127,41 @@ class SearchResult:
     search_url: str
 
 def fetch_html(url: str, timeout: int = 20) -> str:
-    headers = {"User-Agent": USER_AGENT}
-    req = urllib.request.Request(url, headers=headers)
-    context = ssl._create_unverified_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
-        return response.read().decode("utf-8", errors="ignore")
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+        "Referer": f"{BASE_URL}/",
+        "User-Agent": USER_AGENT,
+    }
+    return _fetch_text(url, headers, timeout)
 
 def fetch_json(url: str, timeout: int = 20) -> dict[str, Any]:
     headers = {
         "Accept": "application/json",
+        "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+        "Origin": BASE_URL,
+        "Referer": f"{BASE_URL}/",
         "User-Agent": USER_AGENT,
         "X-Rata-Country": "CL",
     }
-    req = urllib.request.Request(url, headers=headers)
+    return json.loads(_fetch_text(url, headers, timeout))
+
+def _fetch_text(url: str, headers: dict[str, str], timeout: int) -> str:
     context = ssl._create_unverified_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
-        return json.loads(response.read().decode("utf-8"))
+    last_error: HTTPError | None = None
+    for attempt in range(REQUEST_RETRIES):
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
+                return response.read().decode("utf-8", errors="ignore")
+        except HTTPError as exc:
+            last_error = exc
+            if exc.code != 403 or attempt == REQUEST_RETRIES - 1:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    if last_error:
+        raise last_error
+    raise RuntimeError("No se pudo leer DescuentosRata.")
 
 def parse_price(price_str: str) -> int:
     digits = "".join(ch for ch in price_str if ch.isdigit())

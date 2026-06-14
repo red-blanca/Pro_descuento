@@ -1,8 +1,10 @@
 import json
+import http.cookiejar
 import re
 import time
 import urllib.parse
 import urllib.request
+from urllib.error import HTTPError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,6 +15,7 @@ RESULTS_URL = f"{BASE_URL}/results"
 PAGE_CACHE_TTL_SECONDS = 300
 CATEGORY_CACHE_TTL_SECONDS = 900
 MAX_WORKERS = 8
+REQUEST_RETRIES = 3
 
 PAGE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 CATEGORY_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
@@ -83,17 +86,39 @@ def fetch_page(url: str) -> dict[str, Any]:
     if cached is not None:
         return cached
 
-    req = urllib.request.Request(url, headers={
+    headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
+            "Chrome/131.0.0.0 Safari/537.36"
         ),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "es-CL,es;q=0.9,en-US;q=0.8,en;q=0.7",
-    })
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        html = resp.read().decode("utf-8", errors="replace")
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": "https://knasta.cl/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    last_error: HTTPError | None = None
+    for attempt in range(REQUEST_RETRIES):
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with opener.open(req, timeout=30) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+            break
+        except HTTPError as exc:
+            last_error = exc
+            if exc.code != 403 or attempt == REQUEST_RETRIES - 1:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    else:
+        if last_error:
+            raise last_error
+        raise RuntimeError("No se pudo leer Knasta.")
 
     match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
     data: dict[str, Any] = {}
