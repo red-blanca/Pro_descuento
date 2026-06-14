@@ -13,6 +13,9 @@ from typing import Any
 
 BASE_URL = "https://descuentosrata.com"
 OFFERS_URL = f"{BASE_URL}/oferta"
+API_OFFERS_URL = "https://cerebro.descuentosrata.com/api/v1/ofertas/"
+API_PAGE_SIZE = 500
+MAX_API_RESULTS = 10000
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -128,9 +131,68 @@ def fetch_html(url: str, timeout: int = 20) -> str:
     with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
         return response.read().decode("utf-8", errors="ignore")
 
+def fetch_json(url: str, timeout: int = 20) -> dict[str, Any]:
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+        "X-Rata-Country": "CL",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    context = ssl._create_unverified_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
+        return json.loads(response.read().decode("utf-8"))
+
 def parse_price(price_str: str) -> int:
     digits = "".join(ch for ch in price_str if ch.isdigit())
     return int(digits) if digits else 0
+
+def normalize_api_offer(raw: dict[str, Any]) -> dict[str, Any]:
+    current_price = parse_price(str(raw.get("monto") or ""))
+    original_price = parse_price(str(raw.get("monto_anterior") or ""))
+    discount = 0
+    if original_price > current_price and original_price > 0:
+        discount = round(((original_price - current_price) / original_price) * 100)
+
+    offer_id = raw.get("id")
+    slug = str(raw.get("slug") or "").strip("/")
+    link_path = f"/oferta/{offer_id}"
+    if slug:
+        link_path += f"/{slug}"
+
+    image_urls = raw.get("imagen_urls")
+    if not isinstance(image_urls, dict):
+        image_urls = {}
+
+    return {
+        "title": clean_html(str(raw.get("nombre") or "")),
+        "store": clean_html(str(raw.get("tienda_nombre") or "Desconocido")),
+        "price": current_price,
+        "formatted_price": f"$ {current_price:,}".replace(",", "."),
+        "original_price": original_price,
+        "formatted_original_price": f"$ {original_price:,}".replace(",", ".") if original_price else "",
+        "discount_percentage": discount,
+        "link": urllib.parse.urljoin(BASE_URL, link_path),
+        "image": str(image_urls.get("medium") or raw.get("imagen") or ""),
+        "active": bool(raw.get("activo")),
+    }
+
+def fetch_api_offers(max_results: int = MAX_API_RESULTS) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode({"limit": API_PAGE_SIZE, "categoria": "ofertas"})
+    next_url: str | None = f"{API_OFFERS_URL}?{params}"
+    visited: set[str] = set()
+    offers: list[dict[str, Any]] = []
+
+    while next_url and next_url not in visited and len(offers) < max_results:
+        visited.add(next_url)
+        payload = fetch_json(next_url)
+        results = payload.get("results")
+        if not isinstance(results, list):
+            raise ValueError("Respuesta invalida de la API de DescuentosRata.")
+        offers.extend(normalize_api_offer(item) for item in results if isinstance(item, dict))
+        next_value = payload.get("next")
+        next_url = str(next_value) if next_value else None
+
+    return offers[:max_results]
 
 def extract_offers(html: str) -> list[dict[str, Any]]:
     offers = []
@@ -195,8 +257,12 @@ def clean_html(raw_html: str) -> str:
     return clean
 
 def execute_search(opts: SearchOptions) -> SearchResult:
-    html = fetch_html(OFFERS_URL)
-    all_offers = extract_offers(html)
+    try:
+        all_offers = fetch_api_offers()
+    except Exception:
+        # Respaldo por si la API cambia o queda temporalmente fuera de servicio.
+        html = fetch_html(OFFERS_URL)
+        all_offers = extract_offers(html)
     
     # Filtrar por query
     filtered = all_offers

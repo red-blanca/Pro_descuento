@@ -159,12 +159,21 @@ def _ensure_frontend_deps(service: Service, node_path: Path | None) -> None:
         return
     if node_path is None:
         raise RuntimeError(f"[{service.label}] Falta Node.js para iniciar frontend Vite.")
-    vite_js = service.web_dir / "node_modules" / "vite" / "bin" / "vite.js"
-    if vite_js.exists():
-        return
     npm = _npm_for_node(node_path)
+    npm_env = os.environ.copy()
+    npm_env["PATH"] = f"{node_path.parent}{os.pathsep}{npm_env.get('PATH', '')}"
+    probe = subprocess.run(
+        [str(npm), "ls", "--depth=0"],
+        cwd=str(service.web_dir),
+        env=npm_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
     print(f"[{service.label}] Instalando dependencias frontend...")
-    subprocess.run([str(npm), "ci"], cwd=str(service.web_dir), check=True)
+    subprocess.run([str(npm), "ci"], cwd=str(service.web_dir), env=npm_env, check=True)
 
 
 def _start_process(name: str, cmd: list[str], cwd: Path, env: dict[str, str]) -> subprocess.Popen:
