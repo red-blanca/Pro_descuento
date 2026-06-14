@@ -2072,7 +2072,10 @@ def run(
         # Empty result set is a valid outcome for strict filters.
         if export_xlsx_path is not None:
             out = export_xlsx(items, query=query, country=country, output_path=export_xlsx_path)
-            print(f"Excel generado: {out}")
+            if as_json:
+                print("[]")
+            else:
+                print(f"Excel generado: {out}")
             return 0
         if as_json:
             print("[]")
@@ -2082,7 +2085,10 @@ def run(
 
     if export_xlsx_path is not None:
         out = export_xlsx(items, query=query, country=country, output_path=export_xlsx_path)
-        print(f"Excel generado: {out}")
+        if as_json:
+            print(json.dumps(items, ensure_ascii=False, indent=2))
+        else:
+            print(f"Excel generado: {out}")
         return 0
 
     if as_json:

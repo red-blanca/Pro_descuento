@@ -2,8 +2,8 @@
   "country": "cl",
   "queries": [
     {
-      "name": "mouse_gamer",
-      "terms": "mouse gamer",
+      "name": "notebook",
+      "terms": "notebook",
       "all_results": true,
       "max_pages": 0,
       "min_price": 0,
