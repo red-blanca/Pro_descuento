@@ -1,20 +1,39 @@
 {
-  "country": "cl",
-  "queries": [
-    {
-      "name": "notebook",
-      "terms": "notebook",
-      "all_results": true,
-      "max_pages": 0,
-      "min_price": 0,
-      "max_price": 0,
-      "min_discount": 0,
-      "condition": "any",
-      "include_words": [],
-      "exclude_words": [],
-      "sort_price": false,
-      "include_international": true,
-      "export_xlsx": true
+  "query": "notebook",
+  "scan_scope": "complete",
+  "max_items_per_source": 10000,
+  "include_words": [],
+  "exclude_words": [],
+  "smart_filter": true,
+  "groups": {
+    "usado": {
+      "sources": [
+        "mercadolibre",
+        "pulga",
+        "facebook_marketplace"
+      ],
+      "mercadolibre_condition": "used",
+      "pulga_condition": "any"
+    },
+    "nuevo": {
+      "sources": [
+        "mercadolibre",
+        "knasta",
+        "solotodo",
+        "travel",
+        "tuganga",
+        "descuentosrata",
+        "pcfactory",
+        "jumbo",
+        "santaisabel",
+        "unimarc",
+        "alvi",
+        "lider",
+        "acuenta",
+        "tottus"
+      ],
+      "mercadolibre_condition": "new",
+      "descuentosrata_all": false
     }
-  ]
+  }
 }

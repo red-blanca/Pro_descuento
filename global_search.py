@@ -193,7 +193,10 @@ def _run_mercadolibre(cfg: dict[str, Any]) -> dict[str, Any]:
     import mercadolibre as ml
 
     cookie_file = ROOT / "cookies.txt"
-    if cookie_file.exists():
+    env_cookie = os.getenv("ML_COOKIE", "").strip()
+    if env_cookie:
+        ml.configure_cookie_header(env_cookie, None)
+    elif cookie_file.exists():
         ml.configure_cookie_header(None, str(cookie_file))
 
     scope = cfg["scan_scope"]
