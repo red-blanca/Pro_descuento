@@ -6,9 +6,11 @@ import hashlib
 import http.client
 import json
 import os
+import random
 import re
 import socket
 import sys
+import threading
 import time
 import unicodedata
 import math
@@ -18,7 +20,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, quote_plus, unquote, urljoin
-from urllib.request import HTTPCookieProcessor, Request, build_opener
+from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from urllib.error import HTTPError, URLError
 from zipfile import ZIP_DEFLATED, ZipFile
 import http.cookiejar
@@ -31,10 +33,13 @@ DOMAIN_BY_COUNTRY = {
     "pe": "mercadolibre.com.pe",
 }
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
+USER_AGENT = os.getenv(
+    "ML_USER_AGENT",
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
 )
 
 LOCAL_SHIPPING_FILTER = "SHIPPING*ORIGIN_10215068"
@@ -50,7 +55,10 @@ REQUEST_COOKIE_HEADER: str | None = None
 ROOT = Path(__file__).resolve().parent
 PAGE_CACHE_TTL_SECONDS = 300
 PAGE_CACHE: dict[str, tuple[float, str]] = {}
-MAX_WORKERS = 5
+MAX_WORKERS = max(1, int(os.getenv("ML_MAX_WORKERS", "2")))
+_DIAGNOSTIC_LOCK = threading.Lock()
+_RATE_LOCK = threading.Lock()
+_LAST_REQUEST_AT = 0.0
 
 
 def _progress(prefix: str, current: int, total: int | None = None) -> None:
@@ -164,8 +172,64 @@ def extract_condition_from_block(block: str) -> str | None:
 
 def _build_opener() -> tuple[Any, http.cookiejar.CookieJar]:
     jar = http.cookiejar.CookieJar()
-    opener = build_opener(HTTPCookieProcessor(jar))
+    handlers: list[Any] = [HTTPCookieProcessor(jar)]
+    proxy = os.getenv("ML_PROXY", "").strip()
+    if proxy:
+        handlers.append(ProxyHandler({"http": proxy, "https": proxy}))
+    opener = build_opener(*handlers)
     return opener, jar
+
+
+def classify_html_failure(html: str) -> str:
+    text = html.lower()
+    if looks_like_traffic_block(html):
+        return "anti_bot"
+    if any(marker in text for marker in ("captcha", "this page requires javascript to work", "_bmstate")):
+        return "challenge"
+    if any(marker in text for marker in ("algo salió mal", "algo salio mal", "something went wrong")):
+        return "site_error"
+    if any(marker in text for marker in ("aceptar cookies", "cookie consent", "cookies preferences")):
+        return "cookie_consent"
+    if looks_like_results_page(html):
+        return "selector_or_parse_empty"
+    return "unexpected_html"
+
+
+def _html_title(html: str) -> str:
+    match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
+    return clean_html_text(match.group(1))[:160] if match else ""
+
+
+def _log_http_event(**fields: Any) -> None:
+    payload = {"store": "mercadolibre", **fields}
+    print(f"STORE_DIAGNOSTIC {json.dumps(payload, ensure_ascii=False, default=str)}", file=sys.stderr, flush=True)
+
+
+def save_failure_html(html: str, reason: str, url: str) -> Path | None:
+    debug_dir = os.getenv("ML_DEBUG_DIR", "").strip()
+    if not debug_dir or not html:
+        return None
+    label = re.sub(r"[^a-zA-Z0-9_-]+", "_", os.getenv("ML_RUN_LABEL", "run"))[:40]
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    path = Path(debug_dir) / f"mercadolibre_{label}_{reason}_{stamp}.html"
+    with _DIAGNOSTIC_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"<!-- url: {url} -->\n{html[:2_000_000]}", encoding="utf-8")
+    return path
+
+
+def _throttle_request() -> None:
+    global _LAST_REQUEST_AT
+    try:
+        minimum = max(0.0, float(os.getenv("ML_MIN_REQUEST_DELAY", "1.25")))
+        jitter = max(0.0, float(os.getenv("ML_REQUEST_JITTER", "0.75")))
+    except ValueError:
+        minimum, jitter = 1.25, 0.75
+    with _RATE_LOCK:
+        wait = (_LAST_REQUEST_AT + minimum + random.uniform(0, jitter)) - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _LAST_REQUEST_AT = time.monotonic()
 
 
 def _read_html(opener: Any, url: str, timeout: int) -> str:
@@ -175,7 +239,6 @@ def _read_html(opener: Any, url: str, timeout: int) -> str:
         "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
-        "Referer": "https://www.google.com/",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
         "Sec-Ch-Ua-Mobile": "?0",
@@ -188,8 +251,51 @@ def _read_html(opener: Any, url: str, timeout: int) -> str:
     if REQUEST_COOKIE_HEADER:
         headers["Cookie"] = REQUEST_COOKIE_HEADER
     req = Request(url, headers=headers)
-    with opener.open(req, timeout=timeout) as response:
-        return response.read().decode("utf-8", errors="ignore")
+    _throttle_request()
+    try:
+        with opener.open(req, timeout=timeout) as response:
+            body = response.read()
+            html = body.decode("utf-8", errors="ignore")
+            _log_http_event(
+                event="http_response",
+                status_code=getattr(response, "status", 200),
+                bytes=len(body),
+                title=_html_title(html),
+                marker=classify_html_failure(html) if not looks_like_results_page(html) else "results_page",
+                cookie_configured=bool(REQUEST_COOKIE_HEADER),
+                url=url,
+            )
+            return html
+    except HTTPError as exc:
+        body = exc.read()
+        html = body.decode("utf-8", errors="ignore")
+        reason = "rate_limited" if exc.code == 429 else ("anti_bot" if exc.code == 403 else "http_error")
+        sample = save_failure_html(html, reason, url)
+        _log_http_event(
+            event="http_error",
+            status_code=exc.code,
+            bytes=len(body),
+            title=_html_title(html),
+            marker=classify_html_failure(html) if html else reason,
+            reason=reason,
+            sample_html=str(sample) if sample else None,
+            cookie_configured=bool(REQUEST_COOKIE_HEADER),
+            url=url,
+        )
+        raise
+    except BaseException as exc:
+        reason = "timeout" if isinstance(exc, (TimeoutError, socket.timeout)) else "network_error"
+        _log_http_event(
+            event="request_error",
+            status_code=None,
+            bytes=0,
+            title="",
+            marker=reason,
+            reason=f"{reason}: {exc}",
+            cookie_configured=bool(REQUEST_COOKIE_HEADER),
+            url=url,
+        )
+        raise
 
 
 def _cache_get_html(url: str) -> str | None:
@@ -218,7 +324,7 @@ def _is_transient_network_error(exc: BaseException) -> bool:
 
 
 def _sleep_before_retry(attempt: int) -> None:
-    time.sleep(min(0.8 * (2 ** attempt), 6.0))
+    time.sleep(min(1.0 * (2 ** attempt), 12.0) + random.uniform(0.25, 1.25))
 
 
 def _parse_cookie_pairs(raw: str) -> str:
@@ -254,6 +360,23 @@ def configure_cookie_header(cookie_inline: str | None, cookie_file: str | None) 
     elif env_cookie:
         content = env_cookie
     REQUEST_COOKIE_HEADER = _parse_cookie_pairs(content) if content else None
+    pair_count = len(REQUEST_COOKIE_HEADER.split(";")) if REQUEST_COOKIE_HEADER else 0
+    _log_http_event(
+        event="cookie_config",
+        configured=bool(REQUEST_COOKIE_HEADER),
+        valid_format=pair_count > 0,
+        pair_count=pair_count,
+    )
+
+
+def clear_cookie_header() -> None:
+    global REQUEST_COOKIE_HEADER
+    REQUEST_COOKIE_HEADER = None
+    _log_http_event(event="cookie_config", configured=False, valid_format=True, pair_count=0, reason="fallback")
+
+
+def has_cookie_header() -> bool:
+    return bool(REQUEST_COOKIE_HEADER)
 
 
 def fetch_url_html(url: str, timeout: int = 20) -> str:
@@ -1615,11 +1738,24 @@ def collect_results(
                     pass
 
         if not looks_like_results_page(html):
+            reason = classify_html_failure(html)
+            sample = save_failure_html(html, reason, current_url)
+            _log_http_event(
+                event="page_failure",
+                status_code=200,
+                bytes=len(html.encode("utf-8")),
+                title=_html_title(html),
+                marker=reason,
+                reason=reason,
+                sample_html=str(sample) if sample else None,
+                page=page_count,
+                url=current_url,
+            )
             shell_page_streak += 1
             if shell_page_streak >= 3:
                 raise RuntimeError(
-                    "Mercado Libre devolvió páginas sin resultados (bloqueo/anti-bot temporal). "
-                    "Reintenta en unos minutos."
+                    f"Mercado Libre devolvió páginas sin resultados; reason={reason}. "
+                    "Revisa STORE_DIAGNOSTIC y el artifact HTML."
                 )
             if next_url:
                 break
@@ -1629,6 +1765,18 @@ def collect_results(
 
         page_items = parse_results_from_html(html, limit=200)
         if not page_items:
+            sample = save_failure_html(html, "selector_or_parse_empty", current_url)
+            _log_http_event(
+                event="parse_empty",
+                status_code=200,
+                bytes=len(html.encode("utf-8")),
+                title=_html_title(html),
+                marker="selector_or_parse_empty",
+                reason="selector_or_parse_empty",
+                sample_html=str(sample) if sample else None,
+                page=page_count,
+                url=current_url,
+            )
             empty_streak += 1
             if empty_streak >= MAX_EMPTY_PAGES:
                 break

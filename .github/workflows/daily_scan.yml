@@ -11,6 +11,12 @@ jobs:
     timeout-minutes: 300
     env:
       GLOBAL_MAX_ITEMS_PER_SOURCE: "10000"
+      ML_MIN_REQUEST_DELAY: "1.25"
+      ML_REQUEST_JITTER: "0.75"
+      ML_MAX_WORKERS: "2"
+      ML_MAX_PAGES: "20"
+      ML_DEBUG_DIR: automation/results/diagnostics
+      ML_PROXY: ${{ secrets.ML_PROXY }}
 
     steps:
       - name: Checkout
@@ -32,10 +38,11 @@ jobs:
         run: python automation/scheduled_global_job.py
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: notebook-combined-${{ github.run_id }}
-          path: automation/results/**/*.json
+          path: automation/results/**
           if-no-files-found: error
 
       - name: Install rclone

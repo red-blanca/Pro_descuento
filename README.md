@@ -75,7 +75,12 @@ El repo ya queda preparado para Render como un solo servicio Docker:
 
 ### Variables importantes
 
-- `ML_COOKIE`: opcional. Cookie header completo de Mercado Libre.
+- `ML_COOKIE`: opcional. Cookie header completo de Mercado Libre. Si expira o causa
+  bloqueo, la corrida diaria avisa y reintenta una vez sin cookie.
+- `ML_PROXY`: opcional. Proxy HTTP/HTTPS para Mercado Libre, sin credenciales
+  hardcodeadas en el repositorio.
+- `ML_USER_AGENT`: opcional. User-Agent de navegador para actualizarlo sin cambiar código.
+- `ML_MAX_PAGES`: máximo de páginas por búsqueda de Mercado Libre. La daily usa `20`.
 - `PORT`: lo maneja Render automaticamente.
 
 ### Como funciona en produccion
@@ -232,11 +237,16 @@ Puedes ejecutar busquedas diarias sin prender tu PC usando GitHub Actions.
 2. Ve a `Settings > Secrets and variables > Actions`.
 3. (Opcional) Crea el secret `ML_COOKIE` con cookie header completo:
    - ejemplo: `_d2id=...; _csrf=...; ssid=...`
+   - no agregues `Cookie:` al inicio ni comillas alrededor del valor
+   - rota el secret cuando el log muestre `cookie fallback`, `anti_bot`, 403 o challenge
 4. Ve a `Actions` y ejecuta manualmente `Daily MercadoLibre Scan` una vez.
 5. Revisa `Artifacts` del run:
-   - `automation/runs/<timestamp>/summary.md`
-   - `automation/runs/<timestamp>/all_results.json`
-   - archivos `*.json` y `*.xlsx` por busqueda
+   - `automation/results/summary.md`
+   - `automation/results/<grupo>/*.json`
+   - `automation/results/diagnostics/mercadolibre_*.html` cuando MercadoLibre falle
+
+La daily continúa con las demás tiendas si una fuente falla. La falla queda como
+warning de Actions y se detalla en `summary.md`.
 
 ### Programacion diaria
 

@@ -63,25 +63,49 @@ def _output_payload(group_name: str, result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _write_summary(output_dir: Path, results: list[tuple[str, dict[str, Any]]]) -> Path:
+    lines = ["# Daily store scan", "", f"Generated: {datetime.now(ZoneInfo('America/Santiago')).isoformat()}", ""]
+    failed = 0
+    for group_name, result in results:
+        lines.extend([f"## {group_name}", "", "| Store | Status | Count | Detail |", "|---|---:|---:|---|"])
+        for source in result.get("runs", []):
+            ok = bool(source.get("ok"))
+            failed += int(not ok)
+            detail = str(source.get("error") or source.get("warning") or "").replace("|", " ").replace("\n", " ")
+            lines.append(
+                f"| {source.get('source', 'unknown')} | {'OK' if ok else 'FAILED'} | "
+                f"{source.get('count', 0)} | {detail} |"
+            )
+        lines.append("")
+    lines.insert(3, f"Failed store runs: **{failed}**")
+    summary = output_dir / "summary.md"
+    summary.parent.mkdir(parents=True, exist_ok=True)
+    summary.write_text("\n".join(lines), encoding="utf-8")
+    github_summary = os.getenv("GITHUB_STEP_SUMMARY", "").strip()
+    if github_summary:
+        with Path(github_summary).open("a", encoding="utf-8") as handle:
+            handle.write(summary.read_text(encoding="utf-8"))
+            handle.write("\n")
+    return summary
+
+
 def run(config_path: Path, output_dir: Path) -> list[Path]:
     raw = _load_config(config_path)
     stamp = datetime.now(ZoneInfo("America/Santiago")).strftime("%Y-%m-%d_%H-%M-%S")
     query = global_search._safe_name(str(raw["query"]))
     written: list[Path] = []
-
-    ml_cookie = os.getenv("ML_COOKIE", "").strip()
-    if ml_cookie:
-        import mercadolibre
-
-        mercadolibre.configure_cookie_header(ml_cookie, None)
+    group_results: list[tuple[str, dict[str, Any]]] = []
+    os.environ.setdefault("ML_DEBUG_DIR", str(output_dir / "diagnostics"))
 
     for group_name in GROUP_NAMES:
+        os.environ["ML_RUN_LABEL"] = group_name
         with tempfile.TemporaryDirectory(prefix=f"prodescuento-{group_name}-") as temp_dir:
             result = global_search.run_global_search(
                 _group_config(raw, group_name),
                 output_base=Path(temp_dir),
                 include_by_source=False,
             )
+        group_results.append((group_name, result))
 
         group_dir = output_dir / group_name
         group_dir.mkdir(parents=True, exist_ok=True)
@@ -93,6 +117,16 @@ def run(config_path: Path, output_dir: Path) -> list[Path]:
         written.append(output_path)
         print(f"{group_name}: {result.get('total_count', 0)} resultados -> {output_path}")
 
+    summary = _write_summary(output_dir, group_results)
+    failed = [
+        f"{group}:{run.get('source')}"
+        for group, result in group_results
+        for run in result.get("runs", [])
+        if not run.get("ok")
+    ]
+    if failed:
+        print(f"::warning title=Daily store scan completed with failures::{', '.join(failed)}", flush=True)
+    print(f"Resumen diario -> {summary}")
     return written
 
 

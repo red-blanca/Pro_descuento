@@ -50,6 +50,9 @@ class ScheduledGlobalJobTests(unittest.TestCase):
                 call.args[0]["mercadolibre_condition"] for call in search.call_args_list
             ])
             self.assertEqual("Notebook usado", json.loads(written[0].read_text())["items"][0]["title"])
+            summary = (root / "results" / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("Failed store runs: **0**", summary)
+            self.assertIn("| mercadolibre | OK | 1 |", summary)
 
 
 if __name__ == "__main__":

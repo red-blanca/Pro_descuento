@@ -194,28 +194,67 @@ def _run_mercadolibre(cfg: dict[str, Any]) -> dict[str, Any]:
 
     cookie_file = ROOT / "cookies.txt"
     env_cookie = os.getenv("ML_COOKIE", "").strip()
+    cookie_source = "none"
     if env_cookie:
         ml.configure_cookie_header(env_cookie, None)
+        if ml.has_cookie_header():
+            cookie_source = "env"
+        else:
+            print(
+                "::warning title=Invalid ML_COOKIE::ML_COOKIE no contiene pares name=value; "
+                "MercadoLibre se ejecutara sin cookie.",
+                flush=True,
+            )
     elif cookie_file.exists():
         ml.configure_cookie_header(None, str(cookie_file))
+        cookie_source = "file" if ml.has_cookie_header() else "none"
 
     scope = cfg["scan_scope"]
-    items = ml.collect_results(
-        query=cfg["query"],
-        country=cfg["country"],
-        limit=_limit_for(scope, cfg["max_items_per_source"], 80),
-        fetch_all=scope == "complete",
-        max_pages=0 if scope == "complete" else 2,
-        exclude_international=not cfg["include_international"],
-        min_price=cfg["min_price"],
-        max_price=cfg["max_price"],
-        min_discount=cfg["min_discount"],
-        sort_price=cfg["sort_price"],
-        condition_filter=cfg["mercadolibre_condition"],
-        search_url=cfg["mercadolibre_search_url"] or None,
-        timeout=30,
-        quiet=True,
-    )
+    default_max_pages = 0 if scope == "complete" else 2
+    try:
+        ml_max_pages = max(0, int(os.getenv("ML_MAX_PAGES", str(default_max_pages))))
+    except ValueError:
+        ml_max_pages = default_max_pages
+    collect_args = {
+        "query": cfg["query"],
+        "country": cfg["country"],
+        "limit": _limit_for(scope, cfg["max_items_per_source"], 80),
+        "fetch_all": scope == "complete",
+        "max_pages": ml_max_pages,
+        "exclude_international": not cfg["include_international"],
+        "min_price": cfg["min_price"],
+        "max_price": cfg["max_price"],
+        "min_discount": cfg["min_discount"],
+        "sort_price": cfg["sort_price"],
+        "condition_filter": cfg["mercadolibre_condition"],
+        "search_url": cfg["mercadolibre_search_url"] or None,
+        "timeout": 30,
+        "quiet": True,
+    }
+    fallback_warning = ""
+    try:
+        items = ml.collect_results(**collect_args)
+    except Exception as cookie_exc:
+        if cookie_source == "none":
+            raise
+        print(
+            f"::warning title=MercadoLibre cookie fallback::La sesion con cookie fallo: {cookie_exc}. "
+            "Reintentando sin ML_COOKIE.",
+            flush=True,
+        )
+        ml.clear_cookie_header()
+        try:
+            items = ml.collect_results(**collect_args)
+            fallback_warning = "La sesion con ML_COOKIE fallo; MercadoLibre se ejecuto sin cookie."
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                f"MercadoLibre fallo con cookie ({cookie_exc}) y sin cookie ({fallback_exc})"
+            ) from fallback_exc
+    if not items:
+        raise RuntimeError(
+            "MercadoLibre devolvio 0 resultados antes de filtros; posible bloqueo anti-bot "
+            "o cambio de HTML/selectores. Revisa STORE_DIAGNOSTIC y artifact HTML."
+        )
     items = ml.apply_filters(
         items,
         min_price=cfg["min_price"],
@@ -228,7 +267,17 @@ def _run_mercadolibre(cfg: dict[str, Any]) -> dict[str, Any]:
         smart_filter=cfg.get("smart_filter", True),
         query=cfg["query"],
     )
-    return _source_payload("mercadolibre", cfg["query"], items, {"condition": cfg["mercadolibre_condition"]})
+    return _source_payload(
+        "mercadolibre",
+        cfg["query"],
+        items,
+        {
+            "condition": cfg["mercadolibre_condition"],
+            "cookie_source": cookie_source,
+            "max_pages": ml_max_pages,
+            "warning": fallback_warning or None,
+        },
+    )
 
 
 def _run_facebook(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -740,6 +789,7 @@ def run_global_search(
                 payload = future.result()
                 payload["ok"] = True
             except Exception as exc:
+                print(f"::warning title={source} scraper failed::{exc}", flush=True)
                 payload = {
                     "source": source,
                     "query": cfg["query"],
