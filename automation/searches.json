@@ -6,14 +6,14 @@
       "terms": "mouse gamer",
       "all_results": true,
       "max_pages": 0,
-      "min_price": 20000,
-      "max_price": 60000,
+      "min_price": 0,
+      "max_price": 0,
       "min_discount": 0,
       "condition": "any",
       "include_words": [],
-      "exclude_words": ["kit", "alfombrilla", "teclado"],
-      "sort_price": true,
-      "include_international": false,
+      "exclude_words": [],
+      "sort_price": false,
+      "include_international": true,
       "export_xlsx": true
     }
   ]
